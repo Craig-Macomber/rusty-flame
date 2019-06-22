@@ -1,38 +1,71 @@
 extern crate alga;
 extern crate glutin_window;
 extern crate graphics;
+extern crate image as im;
 extern crate nalgebra as na;
 extern crate opengl_graphics;
 extern crate piston;
 
-use glutin_window::GlutinWindow as AppWindow;
 use graphics::{Context, Graphics};
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
-use opengl_graphics::{GlGraphics, OpenGL};
+use opengl_graphics::{GlGraphics, OpenGL, Texture};
 use piston::event_loop::*;
 use piston::input::*;
-use piston::window::{Window, WindowSettings};
+use piston::window::WindowSettings;
+use piston_window::*;
 
 fn main() {
+    let window_size = Size {
+        width: 800.0,
+        height: 800.0,
+    };
+
     let opengl = OpenGL::V3_2;
-    let mut window: AppWindow = WindowSettings::new("Rusty Flame", [800, 800])
+    let mut window: PistonWindow = WindowSettings::new("Rusty Flame", window_size)
         .exit_on_esc(true)
-        .opengl(opengl)
+        .graphics_api(opengl)
         .build()
         .unwrap();
 
-    let ref mut gl = GlGraphics::new(opengl);
+    // window.set_bench_mode(true);
+
+    let mut gl = GlGraphics::new(opengl);
+
     let mut cursor = [0.0, 0.0];
+
+    let texture_count = 1;
+    let size = 32.0;
+
+    let textures = {
+        (0..texture_count)
+            .map(|_| {
+                let mut img = im::ImageBuffer::new(2, 2);
+                for x in 0..2 {
+                    for y in 0..2 {
+                        img.put_pixel(
+                            x,
+                            y,
+                            im::Rgba([rand::random(), rand::random(), rand::random(), 255]),
+                        );
+                    }
+                }
+                Texture::from_image(&img, &TextureSettings::new())
+            })
+            .collect::<Vec<Texture>>()
+    };
 
     let mut events = Events::new(EventSettings::new().lazy(true));
     while let Some(e) = events.next(&mut window) {
-        e.mouse_cursor(|x, y| {
-            cursor = [x, y];
+        e.mouse_cursor(|pos| {
+            cursor = pos;
         });
         if let Some(args) = e.render_args() {
             gl.draw(args.viewport(), |c, g| {
                 graphics::clear([1.0; 4], g);
-                draw_rectangles(cursor, &window, &c, g);
+                for i in 0..texture_count {
+                    image(&textures[i], c.transform.trans(10.0, 10.0).zoom(size), g);
+                }
+                draw_content(cursor, window_size, &c, g);
             });
         }
     }
@@ -43,9 +76,7 @@ struct State<'a> {
     mats: &'a Vec<Affine2<f64>>,
 }
 
-fn draw_rectangles<G: Graphics>(cursor: [f64; 2], window: &Window, c: &Context, g: &mut G) {
-    let draw_size = window.draw_size();
-
+fn draw_content<G: Graphics>(cursor: [f64; 2], draw_size: Size, c: &Context, g: &mut G) {
     // Cursor.
     let cursor_color = [0.0, 0.0, 0.0, 1.0];
     graphics::ellipse(

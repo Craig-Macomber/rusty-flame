@@ -2,11 +2,15 @@
 name = "rusty-flame"
 version = "0.1.0"
 authors = ["Craig Macomber <CraigM@CraigM.info>"]
+edition = "2018"
 
 [dependencies]
-piston = "0.37.0"
-piston2d-opengl_graphics = "0.53.0"
-piston2d-graphics = "0.26.0"
-pistoncore-glutin_window = "0.47.0"
-nalgebra = "0.16.1"
-alga = "0.7.1"
+piston = "0.48.0"
+piston2d-opengl_graphics = "0.65.0"
+piston2d-graphics = "0.32.0"
+pistoncore-glutin_window = "0.62.1"
+nalgebra = "0.18.0"
+alga = "0.9.1"
+piston_window = "0.99.0"
+image = "0.21.2"
+rand = "0.6.5"
