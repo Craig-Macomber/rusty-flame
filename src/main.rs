@@ -72,10 +72,26 @@ fn main() {
     }
 }
 
+trait State<'a> {
+    fn visit_level<F: FnMut(&Self)>(&self, callback: &mut F);
+}
+
 #[derive(Copy, Clone)]
-struct State<'a> {
+struct AffineState<'a> {
     mat: Affine2<f64>,
     mats: &'a Vec<Affine2<f64>>,
+}
+
+impl<'a> State<'a> for AffineState<'a> {
+    fn visit_level<F: FnMut(&Self)>(&self, callback: &mut F) {
+        for t in self.mats.iter().map(|m| self.mat * m) {
+            let s = Self {
+                mat: t,
+                mats: self.mats,
+            };
+            callback(&s);
+        }
+    }
 }
 
 fn draw_content<G: Graphics>(cursor: [f64; 2], draw_size: Size, c: &Context, g: &mut G) {
@@ -94,7 +110,7 @@ fn draw_content<G: Graphics>(cursor: [f64; 2], draw_size: Size, c: &Context, g: 
         Translation2::new(cursor[0], cursor[1]) * Similarity2::from_scaling(draw_size.width as f64),
     );
 
-    let state = State {
+    let state = AffineState {
         mat: mat_root,
         mats: &transforms,
     };
@@ -102,23 +118,19 @@ fn draw_content<G: Graphics>(cursor: [f64; 2], draw_size: Size, c: &Context, g: 
     let start = Point2::new(0.0, 0.0);
     let end = Point2::new(1.0, 0.0);
     let line = graphics::line::Line::new([0.0, 1.0, 0.0, 1.0], 0.25);
-    process_levels(10, state, &mut |state| {
+    process_levels(10, &state, &mut |state| {
         let s2 = state.mat * start;
         let e2 = state.mat * end;
         line.draw([s2[0], s2[1], e2[0], e2[1]], &c.draw_state, c.transform, g);
     })
 }
 
-fn process_levels<F: FnMut(State)>(level: u32, state: State, callback: &mut F) {
+fn process_levels<'a, S: State<'a>, F: FnMut(&S)>(level: u32, state: &S, callback: &mut F) {
     if level == 0 {
         callback(state);
     } else {
-        for t in state.mats.iter().map(|m| state.mat * m) {
-            let s = State {
-                mat: t,
-                mats: state.mats,
-            };
+        state.visit_level(&mut |s| {
             process_levels(level - 1, s, callback);
-        }
+        });
     }
 }
