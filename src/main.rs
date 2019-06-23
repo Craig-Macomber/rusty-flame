@@ -9,10 +9,10 @@ extern crate piston;
 use graphics::{Context, Graphics};
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 use opengl_graphics::{GlGraphics, OpenGL, Texture};
-use piston::event_loop::*;
-use piston::input::*;
+use piston::event_loop::{EventLoop, EventSettings, Events};
+use piston::input::{MouseCursorEvent, RenderEvent};
 use piston::window::WindowSettings;
-use piston_window::*;
+use piston_window::{image, PistonWindow, Size, TextureSettings, Transformed};
 
 fn main() {
     let window_size = Size {
@@ -32,27 +32,21 @@ fn main() {
     let mut gl = GlGraphics::new(opengl);
 
     let mut cursor = [0.0, 0.0];
-
-    let texture_count = 1;
     let size = 32.0;
 
-    let textures = {
-        (0..texture_count)
-            .map(|_| {
-                let mut img = im::ImageBuffer::new(2, 2);
-                for x in 0..2 {
-                    for y in 0..2 {
-                        img.put_pixel(
-                            x,
-                            y,
-                            im::Rgba([rand::random(), rand::random(), rand::random(), 255]),
-                        );
-                    }
-                }
-                Texture::from_image(&img, &TextureSettings::new())
-            })
-            .collect::<Vec<Texture>>()
-    };
+    let mut img = im::ImageBuffer::new(2, 2);
+    for x in 0..2 {
+        for y in 0..2 {
+            img.put_pixel(
+                x,
+                y,
+                im::Rgba([rand::random(), rand::random(), rand::random(), 255]),
+            );
+        }
+    }
+    let texture = Texture::from_image(&img, &TextureSettings::new());
+
+    let cursor_color = [0.0, 0.0, 0.0, 1.0];
 
     let mut events = Events::new(EventSettings::new().lazy(true));
     while let Some(e) = events.next(&mut window) {
@@ -62,30 +56,29 @@ fn main() {
         if let Some(args) = e.render_args() {
             gl.draw(args.viewport(), |c, g| {
                 graphics::clear([1.0; 4], g);
-                for i in 0..texture_count {
-                    image(&textures[i], c.transform.trans(10.0, 10.0).zoom(size), g);
-                }
+                image(&texture, c.transform.trans(10.0, 10.0).zoom(size), g);
+
+                // Cursor
+                graphics::ellipse(
+                    cursor_color,
+                    graphics::ellipse::circle(cursor[0], cursor[1], 4.0),
+                    c.transform,
+                    g,
+                );
+
                 draw_content(cursor, window_size, &c, g);
             });
         }
     }
 }
 
+#[derive(Copy, Clone)]
 struct State<'a> {
     mat: Affine2<f64>,
     mats: &'a Vec<Affine2<f64>>,
 }
 
 fn draw_content<G: Graphics>(cursor: [f64; 2], draw_size: Size, c: &Context, g: &mut G) {
-    // Cursor.
-    let cursor_color = [0.0, 0.0, 0.0, 1.0];
-    graphics::ellipse(
-        cursor_color,
-        graphics::ellipse::circle(cursor[0], cursor[1], 4.0),
-        c.transform,
-        g,
-    );
-
     let sm = Similarity2::from_scaling(0.5);
 
     let a: Affine2<f64> = na::convert(sm * Translation2::new(0.25, 0.25));
@@ -106,28 +99,26 @@ fn draw_content<G: Graphics>(cursor: [f64; 2], draw_size: Size, c: &Context, g: 
         mats: &transforms,
     };
 
-    fn draw_level<G: Graphics>(level: i32, state: State, c: &Context, g: &mut G) {
-        if level == 9 {
-            let s = Point2::new(0.0, 0.0);
-            let e = Point2::new(1.0, 0.0);
-            let s2 = state.mat * s;
-            let e2 = state.mat * e;
-            graphics::line::Line::new([0.0, 1.0, 0.0, 1.0], 0.25).draw(
-                [s2[0], s2[1], e2[0], e2[1]],
-                &c.draw_state,
-                c.transform,
-                g,
-            );
-        } else {
-            for t in state.mats.iter().map(|m| state.mat * m) {
-                let s = State {
-                    mat: t,
-                    mats: state.mats,
-                };
-                draw_level(level + 1, s, c, g);
-            }
+    let start = Point2::new(0.0, 0.0);
+    let end = Point2::new(1.0, 0.0);
+    let line = graphics::line::Line::new([0.0, 1.0, 0.0, 1.0], 0.25);
+    process_levels(10, state, &mut |state| {
+        let s2 = state.mat * start;
+        let e2 = state.mat * end;
+        line.draw([s2[0], s2[1], e2[0], e2[1]], &c.draw_state, c.transform, g);
+    })
+}
+
+fn process_levels<F: FnMut(State)>(level: u32, state: State, callback: &mut F) {
+    if level == 0 {
+        callback(state);
+    } else {
+        for t in state.mats.iter().map(|m| state.mat * m) {
+            let s = State {
+                mat: t,
+                mats: state.mats,
+            };
+            process_levels(level - 1, s, callback);
         }
     }
-
-    draw_level(0, state, c, g);
 }
