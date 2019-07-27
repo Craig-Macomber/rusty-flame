@@ -30,8 +30,8 @@ pub fn process_scene<F: FnMut(&AffineState)>(
 
     let transforms = vec![
         na::convert(sm * Translation2::new(0.0, -0.25)),
-        a2 * Rotation2::new(0.1 * (cursor[1] as f64) / 5.0),
-        a * Rotation2::new(0.1 * (cursor[0] as f64) / 5.0),
+        a2 * Rotation2::new(100.0 * (cursor[1] as f64) / draw_size[1]),
+        a * Rotation2::new(100.0 * (cursor[0] as f64) / draw_size[0]),
     ];
 
     let mat_root = na::convert(
@@ -39,5 +39,5 @@ pub fn process_scene<F: FnMut(&AffineState)>(
     );
 
     let state = AffineState::new(mat_root, &transforms);
-    process_levels(9, &state, callback);
+    process_levels(8, &state, callback);
 }

@@ -1,14 +1,16 @@
 use na::Point2;
 use rendy::{
-    command::{QueueId, RenderPassEncoder},
+    command::{Families, QueueId, RenderPassEncoder},
     factory::{Config, Factory},
-    graph::{present::PresentNode, render::*, GraphBuilder, GraphContext, NodeBuffer, NodeImage},
+    graph::{
+        present::PresentNode, render::*, Graph, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
+    },
     memory::Dynamic,
     mesh::{AsVertex, TexCoord},
     resource::Buffer,
     resource::{BufferInfo, DescriptorSetLayout, Escape, Handle},
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage},
-    wsi::winit::{Event, EventsLoop, WindowBuilder, WindowEvent},
+    wsi::winit::{Event, EventsLoop, Window, WindowBuilder, WindowEvent},
 };
 
 use crate::process_scene;
@@ -49,9 +51,49 @@ pub fn main() {
 
     event_loop.poll_events(|_| ());
 
-    let surface = factory.create_surface(&window);
+    let mut cursor = Point2::new(0.0, 0.0);
 
-    let mut graph_builder = GraphBuilder::<Backend, ()>::new();
+    loop {
+        factory.maintain(&mut families);
+
+        let mut should_close = false;
+        event_loop.poll_events(|event| match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                should_close = true;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CursorMoved { position, .. },
+                ..
+            } => {
+                let size = window.get_inner_size().unwrap();
+                cursor = Point2::new(
+                    position.x / size.width * 2.0 - 1.0,
+                    position.y / size.height * 2.0 - 1.0,
+                );
+            }
+            _ => {}
+        });
+        if should_close {
+            break;
+        }
+        let mut graph = make_graph(&mut factory, &mut families, &window, cursor);
+        graph.run(&mut factory, &mut families, &cursor);
+        graph.dispose(&mut factory, &cursor);
+    }
+}
+
+fn make_graph(
+    factory: &mut Factory<Backend>,
+    families: &mut Families<Backend>,
+    window: &Window,
+    cursor: Point2<f64>,
+) -> Graph<Backend, Point2<f64>> {
+    let surface = factory.create_surface(window);
+
+    let mut graph_builder = GraphBuilder::<Backend, Point2<f64>>::new();
 
     let size = window
         .get_inner_size()
@@ -76,42 +118,7 @@ pub fn main() {
 
     graph_builder.add_node(PresentNode::builder(&factory, surface, color).with_dependency(pass));
 
-    let mut graph = graph_builder
-        .build(&mut factory, &mut families, &())
-        .unwrap();
-
-    loop {
-        factory.maintain(&mut families);
-
-        let mut should_close = false;
-        let mut cursor = Point2::new(0.0, 0.0);
-        event_loop.poll_events(|event| match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                should_close = true;
-            }
-            Event::WindowEvent {
-                event:
-                    WindowEvent::CursorMoved {
-                        device_id: _,
-                        position,
-                        modifiers: _,
-                    },
-                ..
-            } => {
-                cursor = Point2::new(position.x, position.y);
-            }
-            _ => {}
-        });
-        if should_close {
-            break;
-        }
-        graph.run(&mut factory, &mut families, &());
-    }
-
-    graph.dispose(&mut factory, &());
+    graph_builder.build(factory, families, &cursor).unwrap()
 }
 
 #[derive(Debug, Default)]
@@ -123,10 +130,9 @@ struct TriangleRenderPipeline<B: gfx_hal::Backend> {
     vertex_count: u32,
 }
 
-impl<B, T> SimpleGraphicsPipelineDesc<B, T> for TriangleRenderPipelineDesc
+impl<B> SimpleGraphicsPipelineDesc<B, Point2<f64>> for TriangleRenderPipelineDesc
 where
     B: gfx_hal::Backend,
-    T: ?Sized,
 {
     type Pipeline = TriangleRenderPipeline<B>;
 
@@ -144,7 +150,11 @@ where
         None
     }
 
-    fn load_shader_set(&self, factory: &mut Factory<B>, _aux: &T) -> rendy::shader::ShaderSet<B> {
+    fn load_shader_set(
+        &self,
+        factory: &mut Factory<B>,
+        _aux: &Point2<f64>,
+    ) -> rendy::shader::ShaderSet<B> {
         SHADERS.build(factory, Default::default()).unwrap()
     }
 
@@ -153,7 +163,7 @@ where
         _ctx: &GraphContext<B>,
         factory: &mut Factory<B>,
         _queue: QueueId,
-        _aux: &T,
+        aux: &Point2<f64>,
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
         set_layouts: &[Handle<DescriptorSetLayout<B>>],
@@ -169,7 +179,7 @@ where
             Point2::new(-1.0, 1.0),
         ];
 
-        process_scene([0.0, 0.0], [2.0, 2.0], &mut |state| {
+        process_scene([aux.x, aux.y], [2.0, 2.0], &mut |state| {
             for t in &tri_verts {
                 let t2 = state.mat * t;
                 verts.push([t2.x as f32, t2.y as f32].into());
@@ -195,15 +205,14 @@ where
 
         Ok(TriangleRenderPipeline {
             vertex: vertex_buffer,
-            vertex_count: vertex_count,
+            vertex_count,
         })
     }
 }
 
-impl<B, T> SimpleGraphicsPipeline<B, T> for TriangleRenderPipeline<B>
+impl<B> SimpleGraphicsPipeline<B, Point2<f64>> for TriangleRenderPipeline<B>
 where
     B: gfx_hal::Backend,
-    T: ?Sized,
 {
     type Desc = TriangleRenderPipelineDesc;
 
@@ -213,7 +222,7 @@ where
         _queue: QueueId,
         _set_layouts: &[Handle<DescriptorSetLayout<B>>],
         _index: usize,
-        _aux: &T,
+        _aux: &Point2<f64>,
     ) -> PrepareResult {
         PrepareResult::DrawReuse
     }
@@ -223,7 +232,7 @@ where
         _layout: &B::PipelineLayout,
         mut encoder: RenderPassEncoder<'_, B>,
         _index: usize,
-        _aux: &T,
+        _aux: &Point2<f64>,
     ) {
         unsafe {
             encoder.bind_vertex_buffers(0, Some((self.vertex.raw(), 0)));
@@ -231,5 +240,5 @@ where
         }
     }
 
-    fn dispose(self, _factory: &mut Factory<B>, _aux: &T) {}
+    fn dispose(self, _factory: &mut Factory<B>, _aux: &Point2<f64>) {}
 }
