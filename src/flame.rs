@@ -38,4 +38,5 @@ pub fn process_levels<'a, S: State<'a>, F: FnMut(&S)>(level: u32, state: &S, cal
         state.visit_level(&mut |s| {
             process_levels(level - 1, s, callback);
         });
-    }}
+    }
+}

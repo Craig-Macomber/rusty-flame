@@ -1,3 +1,4 @@
+use na::Point2;
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
     factory::{Config, Factory},
@@ -7,12 +8,10 @@ use rendy::{
     memory::Dynamic,
     mesh::{AsVertex, PosColor},
     resource::Buffer,
-
     resource::{BufferInfo, DescriptorSetLayout, Escape, Handle},
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage},
     wsi::winit::{Event, EventsLoop, WindowBuilder, WindowEvent},
 };
-use na::Point2;
 
 use crate::process_scene;
 
@@ -51,7 +50,7 @@ pub fn main() {
     let mut event_loop = EventsLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("Rendy Triangle")
+        .with_title("Rusty Flame")
         .build(&event_loop)
         .unwrap();
 
@@ -168,35 +167,25 @@ where
         assert!(images.is_empty());
         assert!(set_layouts.is_empty());
 
-        let mut verts = vec!();
-        let a = Point2::new(0.0, -1.0);
-        let b = Point2::new(1.0, 1.0);
-        let c = Point2::new(-1.0, 1.0);
+        let mut verts = vec![];
+        let tri_verts = vec![
+            Point2::new(0.0, -1.0),
+            Point2::new(1.0, 1.0),
+            Point2::new(-1.0, 1.0)
+        ];
 
-        process_scene(
-            [0.0, 0.0],
-            [2.0, 2.0],
-            &mut |state| {
-                let a2 = state.mat * a;
-                let b2 = state.mat * b;
-                let c2 = state.mat * c;
+        process_scene([0.0, 0.0], [2.0, 2.0], &mut |state| {
+            for t in &tri_verts {
+                let t2 = state.mat * t;
                 verts.push(PosColor {
-                            position: [a2.x as f32, a2.y as f32, 0.0].into(),
-                            color: [1.0, 0.0, 0.0, 1.0].into(),
-                        });
-                        verts.push(PosColor {
-                            position: [b2.x as f32, b2.y as f32, 0.0].into(),
-                            color: [0.0, 1.0, 0.0, 1.0].into(),
-                        });
-                        verts.push(PosColor {
-                            position: [c2.x as f32, c2.y as f32, 0.0].into(),
-                            color: [0.0, 0.0, 1.0, 1.0].into(),
-                        });
-            },
-        );
-        let vertex_count: u32 =  verts.len() as u32;
+                    position: [t2.x as f32, t2.y as f32, 0.0].into(),
+                    color: [1.0, 0.0, 0.0, 1.0].into(),
+                });
+            }
+        });
+        let vertex_count: u32 = verts.len() as u32;
 
-               let mut vertex_buffer = factory
+        let mut vertex_buffer = factory
             .create_buffer(
                 BufferInfo {
                     size: u64::from(PosColor::vertex().stride) * u64::from(vertex_count),
@@ -208,11 +197,7 @@ where
 
         unsafe {
             factory
-                .upload_visible_buffer(
-                    &mut vertex_buffer,
-                    0,
-                    &verts,
-                )
+                .upload_visible_buffer(&mut vertex_buffer, 0, &verts)
                 .unwrap();
         }
 
