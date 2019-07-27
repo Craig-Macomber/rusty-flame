@@ -12,6 +12,9 @@ use rendy::{
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage},
     wsi::winit::{Event, EventsLoop, WindowBuilder, WindowEvent},
 };
+use na::Point2;
+
+use crate::process_scene;
 
 type Backend = rendy::vulkan::Backend;
 
@@ -123,6 +126,7 @@ struct TriangleRenderPipelineDesc;
 #[derive(Debug)]
 struct TriangleRenderPipeline<B: gfx_hal::Backend> {
     vertex: Escape<Buffer<B>>,
+    vertex_count: u32,
 }
 
 impl<B, T> SimpleGraphicsPipelineDesc<B, T> for TriangleRenderPipelineDesc
@@ -164,10 +168,38 @@ where
         assert!(images.is_empty());
         assert!(set_layouts.is_empty());
 
-        let mut vertex_buffer = factory
+        let mut verts = vec!();
+        let a = Point2::new(0.0, -1.0);
+        let b = Point2::new(1.0, 1.0);
+        let c = Point2::new(-1.0, 1.0);
+
+        process_scene(
+            [0.0, 0.0],
+            [2.0, 2.0],
+            &mut |state| {
+                let a2 = state.mat * a;
+                let b2 = state.mat * b;
+                let c2 = state.mat * c;
+                verts.push(PosColor {
+                            position: [a2.x as f32, a2.y as f32, 0.0].into(),
+                            color: [1.0, 0.0, 0.0, 1.0].into(),
+                        });
+                        verts.push(PosColor {
+                            position: [b2.x as f32, b2.y as f32, 0.0].into(),
+                            color: [0.0, 1.0, 0.0, 1.0].into(),
+                        });
+                        verts.push(PosColor {
+                            position: [c2.x as f32, c2.y as f32, 0.0].into(),
+                            color: [0.0, 0.0, 1.0, 1.0].into(),
+                        });
+            },
+        );
+        let vertex_count: u32 =  verts.len() as u32;
+
+               let mut vertex_buffer = factory
             .create_buffer(
                 BufferInfo {
-                    size: u64::from(PosColor::vertex().stride) * 6,
+                    size: u64::from(PosColor::vertex().stride) * u64::from(vertex_count),
                     usage: gfx_hal::buffer::Usage::VERTEX,
                 },
                 Dynamic,
@@ -179,38 +211,14 @@ where
                 .upload_visible_buffer(
                     &mut vertex_buffer,
                     0,
-                    &[
-                        PosColor {
-                            position: [0.0, -0.5, 0.0].into(),
-                            color: [1.0, 0.0, 0.0, 1.0].into(),
-                        },
-                        PosColor {
-                            position: [0.5, 0.5, 0.0].into(),
-                            color: [0.0, 1.0, 0.0, 1.0].into(),
-                        },
-                        PosColor {
-                            position: [-0.5, 0.5, 0.0].into(),
-                            color: [0.0, 0.0, 1.0, 1.0].into(),
-                        },
-                        PosColor {
-                            position: [0.3, -0.5, 0.0].into(),
-                            color: [1.0, 0.0, 0.0, 1.0].into(),
-                        },
-                        PosColor {
-                            position: [0.8, 0.5, 0.0].into(),
-                            color: [0.0, 1.0, 0.0, 1.0].into(),
-                        },
-                        PosColor {
-                            position: [-0.2, 0.5, 0.0].into(),
-                            color: [0.0, 0.0, 1.0, 1.0].into(),
-                        },
-                    ],
+                    &verts,
                 )
                 .unwrap();
         }
 
         Ok(TriangleRenderPipeline {
             vertex: vertex_buffer,
+            vertex_count: vertex_count,
         })
     }
 }
@@ -242,7 +250,7 @@ where
     ) {
         unsafe {
             encoder.bind_vertex_buffers(0, Some((self.vertex.raw(), 0)));
-            encoder.draw(0..6, 0..1);
+            encoder.draw(0..self.vertex_count, 0..1);
         }
     }
 
