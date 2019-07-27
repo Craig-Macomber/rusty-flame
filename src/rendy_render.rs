@@ -1,9 +1,9 @@
 use na::Point2;
 use rendy::{
-    command::{Families, QueueId, RenderPassEncoder},
+    command::{QueueId, RenderPassEncoder},
     factory::{Config, Factory},
     graph::{
-        present::PresentNode, render::*, Graph, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
+        present::PresentNode, render::*, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
     },
     memory::Dynamic,
     mesh::{AsVertex, PosColor},
@@ -19,14 +19,14 @@ type Backend = rendy::vulkan::Backend;
 
 lazy_static::lazy_static! {
     static ref VERTEX: PathBufShaderInfo = PathBufShaderInfo::new(
-        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/shaders/triangle/tri.vert")),
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/triangle/tri.vert")),
         ShaderKind::Vertex,
         SourceLanguage::GLSL,
         "main",
     );
 
     static ref FRAGMENT: PathBufShaderInfo = PathBufShaderInfo::new(
-        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/shaders/triangle/tri.frag")),
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/triangle/tri.frag")),
         ShaderKind::Fragment,
         SourceLanguage::GLSL,
         "main",
@@ -38,11 +38,6 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() {
-    env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Warn)
-        .filter_module("triangle", log::LevelFilter::Trace)
-        .init();
-
     let config: Config = Default::default();
 
     let (mut factory, mut families): (Factory<Backend>, _) = rendy::factory::init(config).unwrap();
@@ -83,40 +78,37 @@ pub fn main() {
 
     graph_builder.add_node(PresentNode::builder(&factory, surface, color).with_dependency(pass));
 
-    let graph = graph_builder
+    let mut graph = graph_builder
         .build(&mut factory, &mut families, &())
         .unwrap();
 
-    run(&mut event_loop, &mut factory, &mut families, graph).unwrap();
-}
-
-fn run(
-    event_loop: &mut EventsLoop,
-    factory: &mut Factory<Backend>,
-    families: &mut Families<Backend>,
-    mut graph: Graph<Backend, ()>,
-) -> Result<(), failure::Error> {
     loop {
-        factory.maintain(families);
+        factory.maintain(&mut families);
 
         let mut should_close = false;
-        event_loop.poll_events(|event| {
-            if let Event::WindowEvent {
+        let mut cursor = Point2::new(0.0, 0.0);
+        event_loop.poll_events(|event| match event {
+            Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            } = event
-            {
-                should_close = true
+            } => {
+                should_close = true;
             }
+            Event::WindowEvent {
+                event: WindowEvent::CursorMoved { device_id: _, position, modifiers: _},
+                ..
+            } => {
+                cursor = Point2::new(position.x, position.y);
+            }
+            _ => {}
         });
         if should_close {
             break;
         }
-        graph.run(factory, families, &());
+        graph.run(&mut factory, &mut families, &());
     }
 
-    graph.dispose(factory, &());
-    Ok(())
+    graph.dispose(&mut factory, &());
 }
 
 #[derive(Debug, Default)]
@@ -171,7 +163,7 @@ where
         let tri_verts = vec![
             Point2::new(0.0, -1.0),
             Point2::new(1.0, 1.0),
-            Point2::new(-1.0, 1.0)
+            Point2::new(-1.0, 1.0),
         ];
 
         process_scene([0.0, 0.0], [2.0, 2.0], &mut |state| {
