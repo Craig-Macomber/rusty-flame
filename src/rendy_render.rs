@@ -2,11 +2,9 @@ use na::Point2;
 use rendy::{
     command::{QueueId, RenderPassEncoder},
     factory::{Config, Factory},
-    graph::{
-        present::PresentNode, render::*, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
-    },
+    graph::{present::PresentNode, render::*, GraphBuilder, GraphContext, NodeBuffer, NodeImage},
     memory::Dynamic,
-    mesh::{AsVertex, PosColor},
+    mesh::{AsVertex, TexCoord},
     resource::Buffer,
     resource::{BufferInfo, DescriptorSetLayout, Escape, Handle},
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage},
@@ -95,7 +93,12 @@ pub fn main() {
                 should_close = true;
             }
             Event::WindowEvent {
-                event: WindowEvent::CursorMoved { device_id: _, position, modifiers: _},
+                event:
+                    WindowEvent::CursorMoved {
+                        device_id: _,
+                        position,
+                        modifiers: _,
+                    },
                 ..
             } => {
                 cursor = Point2::new(position.x, position.y);
@@ -134,7 +137,7 @@ where
         gfx_hal::pso::ElemStride,
         gfx_hal::pso::VertexInputRate,
     )> {
-        vec![PosColor::vertex().gfx_vertex_input_desc(gfx_hal::pso::VertexInputRate::Vertex)]
+        vec![TexCoord::vertex().gfx_vertex_input_desc(gfx_hal::pso::VertexInputRate::Vertex)]
     }
 
     fn depth_stencil(&self) -> Option<gfx_hal::pso::DepthStencilDesc> {
@@ -159,7 +162,7 @@ where
         assert!(images.is_empty());
         assert!(set_layouts.is_empty());
 
-        let mut verts = vec![];
+        let mut verts: Vec<TexCoord> = vec![];
         let tri_verts = vec![
             Point2::new(0.0, -1.0),
             Point2::new(1.0, 1.0),
@@ -169,10 +172,7 @@ where
         process_scene([0.0, 0.0], [2.0, 2.0], &mut |state| {
             for t in &tri_verts {
                 let t2 = state.mat * t;
-                verts.push(PosColor {
-                    position: [t2.x as f32, t2.y as f32, 0.0].into(),
-                    color: [1.0, 0.0, 0.0, 1.0].into(),
-                });
+                verts.push([t2.x as f32, t2.y as f32].into());
             }
         });
         let vertex_count: u32 = verts.len() as u32;
@@ -180,7 +180,7 @@ where
         let mut vertex_buffer = factory
             .create_buffer(
                 BufferInfo {
-                    size: u64::from(PosColor::vertex().stride) * u64::from(vertex_count),
+                    size: u64::from(TexCoord::vertex().stride) * u64::from(vertex_count),
                     usage: gfx_hal::buffer::Usage::VERTEX,
                 },
                 Dynamic,
