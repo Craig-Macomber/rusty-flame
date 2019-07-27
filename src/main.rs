@@ -12,9 +12,10 @@ use na::{Affine2, Rotation2, Similarity2, Translation2};
 
 mod flame;
 mod piston_render;
+mod rendy_render;
 
 fn main() {
-    piston_render::main()
+    rendy_render::main()
 }
 
 pub fn process_scene<F: FnMut(&AffineState)>(
