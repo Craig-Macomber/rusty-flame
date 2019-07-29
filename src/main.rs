@@ -23,16 +23,17 @@ pub fn process_scene<F: FnMut(&AffineState)>(
     draw_size: [f64; 2],
     callback: &mut F,
 ) {
-    let n: u32 = 3;
+    let n: u32 = 4;
     let shift = 0.5;
-    let scale = 0.5;
+    let scale = 0.5 + (cursor[1] as f64) / draw_size[1];
     let sm = Similarity2::from_scaling(scale);
 
     let mut va = (0..n)
         .map(|i| {
             let offset = Rotation2::new(std::f64::consts::PI * 2.0 * f64::from(i) / f64::from(n))
                 * Point2::new(shift, 0.0);
-            na::convert(sm * Translation2::new(offset.x, offset.y))
+            na::convert::<_, Affine2<f64>>(sm * Translation2::new(offset.x, offset.y))
+                * Rotation2::new(20.0 * (cursor[0] as f64) / draw_size[0])
         })
         .collect::<Vec<Affine2<f64>>>();
 
@@ -44,5 +45,5 @@ pub fn process_scene<F: FnMut(&AffineState)>(
     );
 
     let state = AffineState::new(mat_root, &va);
-    process_levels(8, &state, callback);
+    process_levels(9, &state, callback);
 }

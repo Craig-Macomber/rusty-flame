@@ -5,6 +5,7 @@ use rendy::{
     graph::{
         present::PresentNode, render::*, Graph, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
     },
+    hal,
     memory::Dynamic,
     mesh::{AsVertex, TexCoord},
     resource::Buffer,
@@ -105,7 +106,7 @@ fn make_graph(
         1,
         factory.get_surface_format(&surface),
         Some(gfx_hal::command::ClearValue::Color(
-            [1.0, 1.0, 1.0, 1.0].into(),
+            [0.0, 0.0, 0.0, 0.0].into(),
         )),
     );
 
@@ -144,6 +145,10 @@ where
         gfx_hal::pso::VertexInputRate,
     )> {
         vec![TexCoord::vertex().gfx_vertex_input_desc(gfx_hal::pso::VertexInputRate::Vertex)]
+    }
+
+    fn colors(&self) -> Vec<hal::pso::ColorBlendDesc> {
+        vec![hal::pso::ColorBlendDesc(hal::pso::ColorMask::ALL, hal::pso::BlendState::ADD,); 1]
     }
 
     fn depth_stencil(&self) -> Option<gfx_hal::pso::DepthStencilDesc> {
