@@ -1,4 +1,4 @@
-use na::Point2;
+use na::{Point2, Vector2};
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
     factory::{Config, Factory},
@@ -14,7 +14,8 @@ use rendy::{
     wsi::winit::{Event, EventsLoop, Window, WindowBuilder, WindowEvent},
 };
 
-use crate::process_scene;
+use crate::flame::BoundedState;
+use crate::{get_state, process_scene};
 
 type Backend = rendy::vulkan::Backend;
 
@@ -184,9 +185,14 @@ where
             Point2::new(-1.0, 1.0),
         ];
 
-        process_scene([aux.x, aux.y], [2.0, 2.0], &mut |state| {
+        let root = get_state([aux.x, aux.y], [2.0, 2.0]);
+        let state = root.get_state();
+        let bounds = state.get_bounds();
+        let scale = 1.0 / f64::max(bounds.width(), bounds.height());
+
+        process_scene(state, &mut |state| {
             for t in &tri_verts {
-                let t2 = state.mat * t;
+                let t2 = (state.mat * t - bounds.min) * scale * 2.0 - Vector2::new(1.0, 1.0);
                 verts.push([t2.x as f32, t2.y as f32].into());
             }
         });

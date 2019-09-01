@@ -1,4 +1,5 @@
-use crate::process_scene;
+use crate::flame::{AffineState, BoundedState};
+use crate::{get_state, process_scene};
 use na::Point2;
 use opengl_graphics::{GlGraphics, OpenGL, Texture};
 use piston::event_loop::{EventLoop, EventSettings, Events};
@@ -61,15 +62,29 @@ pub fn main() {
                     g,
                 );
 
-                process_scene(
-                    cursor,
-                    [window_size.width, window_size.height],
-                    &mut |state| {
-                        let s2 = state.mat * start;
-                        let e2 = state.mat * end;
-                        line.draw([s2[0], s2[1], e2[0], e2[1]], &c.draw_state, c.transform, g);
-                    },
-                )
+                let root = get_state(cursor, [window_size.width, window_size.height]);
+                let state = root.get_state();
+                let bounds = state.get_bounds();
+                let scale = f64::min(window_size.width, window_size.height)
+                    / f64::max(bounds.width(), bounds.height());
+
+                graphics::rectangle(
+                    cursor_color,
+                    graphics::rectangle::rectangle_by_corners(
+                        0.0,
+                        0.0,
+                        bounds.width() * scale,
+                        bounds.height() * scale,
+                    ),
+                    c.transform,
+                    g,
+                );
+
+                process_scene(state, &mut |state| {
+                    let s2 = (state.mat * start - bounds.min) * scale;
+                    let e2 = (state.mat * end - bounds.min) * scale;
+                    line.draw([s2[0], s2[1], e2[0], e2[1]], &c.draw_state, c.transform, g);
+                })
             });
         }
     }
