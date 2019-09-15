@@ -1,6 +1,7 @@
-use nalgebra::{Affine2, Point2};
+use nalgebra::{Affine2, Point2, Similarity2};
 use reduce::Reduce;
 use std::fmt::Debug;
+use std::mem;
 
 pub trait State<'a> {
     fn visit_level<F: FnMut(&Self)>(&self, callback: &mut F);
@@ -81,32 +82,36 @@ impl Bounds for Rect {
     }
 }
 
+pub fn fixed_point_iterate<V: PartialEq, F: Fn(&V) -> V>(initial: V, f: F) -> V {
+    let mut v: V = initial;
+    loop {
+        let v_new = f(&v);
+        let v_old = mem::replace(&mut v, v_new);
+        if v == v_old {
+            return v;
+        }
+    }
+}
+
 pub trait BoundedState<'a>: State<'a> {
     type B: Bounds + Debug;
 
     fn get_bounds(&self) -> Self::B {
         let mut b = Self::B::origin();
         for level in 1..4 {
-            let mut first = true;
-
-            let mut b2: Option<Self::B>;
-            let mut b5;
-            while {
-                b2 = None;
+            let b_new = fixed_point_iterate(b, |input_bounds: &Self::B| {
+                let mut b2: Option<Self::B> = None;
                 self.process_levels(level, &mut |s| {
-                    let b3 = s.transform_bounds(&b);
+                    let b3 = s.transform_bounds(input_bounds);
                     b2 = Some(match &b2 {
                         None => b3,
                         Some(b4) => Self::B::union(&b4, &b3),
                     })
                 });
 
-                b5 = b2.unwrap();
-                first || !(b.contains(&b5))
-            } {
-                b = b5.grow(0.0);
-                first = false;
-            }
+                b2.unwrap()
+            });
+            b = b_new;
         }
         b
     }
@@ -152,10 +157,27 @@ impl<'a> State<'a> for AffineState<'a> {
     }
 }
 
+#[derive(Debug)]
+pub struct Root {
+    pub storage: Vec<Affine2<f64>>,
+}
+
+impl Root {
+    pub fn get_state(&self) -> AffineState {
+        AffineState::new(na::convert(Similarity2::from_scaling(1.0)), &self.storage)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::flame::{AffineState, BoundedState, Bounds, Rect, State};
+    use crate::flame::{fixed_point_iterate, AffineState, BoundedState, Bounds, Rect, Root, State};
     use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
+
+    #[test]
+    fn fixed_point() {
+        assert_eq!(fixed_point_iterate(10, |i| i / 2), 0);
+    }
+
     fn checked_bounds(s: &AffineState) -> Rect {
         let b = s.get_bounds();
         let corners = b.corners();
@@ -177,25 +199,50 @@ mod tests {
 
     #[test]
     fn shifted_bounds() {
-        let v = [na::convert(Similarity2::from_scaling(0.5))];
-        let state = AffineState::new(na::convert(Translation2::new(5.0, 6.0)), &v);
+        let v = Root {
+            storage: vec![na::convert(
+                Similarity2::from_scaling(0.5) * Translation2::new(5.0, 6.0),
+            )],
+        };
 
-        assert_eq!(checked_bounds(&state), Rect::point(Point2::new(5.0, 6.0)));
+        assert_eq!(
+            fixed_point_iterate(Point2::new(0.0, 0.0), |p| v.storage[0].transform_point(p)),
+            Point2::new(5.0, 6.0)
+        );
+
+        assert_eq!(
+            checked_bounds(&v.get_state()),
+            Rect::point(Point2::new(5.0, 6.0))
+        );
     }
 
     #[test]
     fn line_bounds() {
         let v = [
             na::convert(Similarity2::from_scaling(0.5)),
-            na::convert(Similarity2::from_scaling(0.5) * Translation2::new(0.0, 2.0)),
+            na::convert(Similarity2::from_scaling(0.5) * Translation2::new(0.0, 1.0)),
         ];
         let state = AffineState::new(na::convert(Similarity2::from_scaling(1.0)), &v);
+
+        assert_eq!(
+            fixed_point_iterate(Point2::new(5.0, 5.0), |p| v[0].transform_point(p)),
+            Point2::new(0.0, 0.0)
+        );
+        assert_eq!(
+            fixed_point_iterate(Point2::new(5.0, 5.0), |p| v[1].transform_point(p)),
+            Point2::new(0.0, 1.0)
+        );
+
+        assert_eq!(
+            v[1].transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(0.0, 0.5)
+        );
 
         assert_eq!(
             checked_bounds(&state),
             Rect {
                 min: Point2::new(0.0, 0.0),
-                max: Point2::new(0.0, 2.0)
+                max: Point2::new(0.0, 1.0)
             }
         );
     }
@@ -217,14 +264,12 @@ mod tests {
                 })
                 .collect::<Vec<Affine2<f64>>>();
 
-            let mat_root = na::convert(Similarity2::from_scaling(1.0));
+            let root = Root { storage: va };
 
-            let state = AffineState::new(mat_root, &va);
-
-            let bounds = checked_bounds(&state);
+            let bounds = checked_bounds(&root.get_state());
             assert!(bounds.contains(&Rect {
-                min: Point2::new(-0.4, -0.4),
-                max: Point2::new(0.4, 0.4)
+                min: Point2::new(-0.3, -0.3),
+                max: Point2::new(0.3, 0.3)
             }));
             assert!(Rect {
                 min: Point2::new(-0.7, -0.7),

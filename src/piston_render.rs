@@ -11,7 +11,7 @@ use vecmath;
 
 pub fn main() {
     let window_size = Size {
-        width: 800.0,
+        width: 1000.0,
         height: 800.0,
     };
 
@@ -65,12 +65,17 @@ pub fn main() {
                 let root = get_state(cursor, [window_size.width, window_size.height]);
                 let state = root.get_state();
                 let bounds = state.get_bounds();
-                let scale = f64::min(window_size.width, window_size.height)
-                    / f64::max(bounds.width(), bounds.height());
+                let scale = f64::min(
+                    window_size.width / bounds.width(),
+                    window_size.height / bounds.height(),
+                );
 
                 let trans = math::multiply(
                     math::multiply(c.transform, math::scale(scale, scale)),
-                    math::translate([-bounds.min.x, -bounds.min.y]),
+                    math::translate([
+                        -bounds.min.x + ((window_size.width / scale) - bounds.width()) / 2.0,
+                        -bounds.min.y + ((window_size.height / scale) - bounds.height()) / 2.0,
+                    ]),
                 );
 
                 let bounding_rect = graphics::rectangle::rectangle_by_corners(
