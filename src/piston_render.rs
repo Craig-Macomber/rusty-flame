@@ -1,4 +1,5 @@
 use crate::flame::BoundedState;
+use crate::geometry::{letter_box, Rect};
 use crate::{get_state, process_scene};
 use na;
 use na::Affine2;
@@ -71,19 +72,17 @@ pub fn main() {
                 );
 
                 let trans = math::multiply(
-                    math::multiply(c.transform, math::scale(scale, scale)),
-                    math::translate([
-                        -bounds.min.x + ((window_size.width / scale) - bounds.width()) / 2.0,
-                        -bounds.min.y + ((window_size.height / scale) - bounds.height()) / 2.0,
-                    ]),
+                    c.transform,
+                    array_from_affine(&letter_box(
+                        Rect {
+                            min: na::Point2::new(0.0, 0.0),
+                            max: na::Point2::new(window_size.width, window_size.height),
+                        },
+                        bounds,
+                    )),
                 );
 
-                let bounding_rect = graphics::rectangle::rectangle_by_corners(
-                    bounds.min.x,
-                    bounds.min.y,
-                    bounds.max.x,
-                    bounds.max.y,
-                );
+                let bounding_rect = array_from_rect(bounds);
 
                 graphics::rectangle(cursor_color, bounding_rect, trans, g);
                 process_scene(state, &mut |state| {
@@ -104,4 +103,8 @@ fn array_from_affine<T: na::RealField>(a: &Affine2<T>) -> vecmath::Matrix2x3<T> 
         [*m.index((0, 0)), *m.index((0, 1)), *m.index((0, 2))],
         [*m.index((1, 0)), *m.index((1, 1)), *m.index((1, 2))],
     ]
+}
+
+fn array_from_rect(r: Rect) -> graphics::types::Rectangle {
+    graphics::rectangle::rectangle_by_corners(r.min.x, r.min.y, r.max.x, r.max.y)
 }
