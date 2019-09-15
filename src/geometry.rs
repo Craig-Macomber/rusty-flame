@@ -1,4 +1,4 @@
-use nalgebra::{Point2};
+use nalgebra::Point2;
 
 pub trait Bounds: PartialEq + Sized {
     fn union(a: &Self, b: &Self) -> Self;
@@ -21,8 +21,8 @@ impl Rect {
     pub fn corners(&self) -> [Point2<f64>; 4] {
         [
             self.min,
-            self.max,
             Point2::new(self.min.x, self.max.y),
+            self.max,
             Point2::new(self.max.x, self.min.y),
         ]
     }
@@ -76,10 +76,10 @@ pub fn letter_box(container: Rect, content: Rect) -> na::Affine2<f64> {
             * na::Translation2::new(
                 -content.min.x
                     + ((container.width() / scale) - content.width()) / 2.0
-                    + container.min.x,
+                    + container.min.x / scale,
                 -content.min.y
                     + ((container.height() / scale) - content.height()) / 2.0
-                    + container.min.y,
+                    + container.min.y / scale,
             ),
     )
 }

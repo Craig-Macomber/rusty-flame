@@ -1,4 +1,5 @@
-use na::{Point2, Vector2};
+use crate::geometry;
+use na::Point2;
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
     factory::{Config, Factory},
@@ -178,21 +179,26 @@ where
         assert!(images.is_empty());
         assert!(set_layouts.is_empty());
 
-        let mut verts: Vec<TexCoord> = vec![];
-        let tri_verts = vec![
-            Point2::new(0.0, -1.0),
-            Point2::new(1.0, 1.0),
-            Point2::new(-1.0, 1.0),
-        ];
-
         let root = get_state([aux.x, aux.y], [2.0, 2.0]);
         let state = root.get_state();
         let bounds = state.get_bounds();
-        let scale = 1.0 / f64::max(bounds.width(), bounds.height());
+        let root_mat = geometry::letter_box(
+            geometry::Rect {
+                min: na::Point2::new(-1.0, -1.0),
+                max: na::Point2::new(1.0, 1.0),
+            },
+            bounds,
+        );
+
+        let corners = bounds.corners();
+        let mut verts: Vec<TexCoord> = vec![];
+        let tri_verts = vec![
+            corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
+        ];
 
         process_scene(state, &mut |state| {
             for t in &tri_verts {
-                let t2 = (state.mat * t - bounds.min) * scale * 2.0 - Vector2::new(1.0, 1.0);
+                let t2 = root_mat * state.mat * t;
                 verts.push([t2.x as f32, t2.y as f32].into());
             }
         });

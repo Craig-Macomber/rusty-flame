@@ -17,11 +17,11 @@ mod piston_render;
 mod rendy_render;
 
 fn main() {
-    piston_render::main()
+    rendy_render::main()
 }
 
 pub fn process_scene<F: FnMut(&AffineState)>(state: AffineState, callback: &mut F) {
-    state.process_levels(3, callback);
+    state.process_levels(9, callback);
 }
 
 pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root<Affine2<f64>> {

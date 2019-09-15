@@ -66,10 +66,6 @@ pub fn main() {
                 let root = get_state(cursor, [window_size.width, window_size.height]);
                 let state = root.get_state();
                 let bounds = state.get_bounds();
-                let scale = f64::min(
-                    window_size.width / bounds.width(),
-                    window_size.height / bounds.height(),
-                );
 
                 let trans = math::multiply(
                     c.transform,
