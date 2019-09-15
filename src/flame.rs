@@ -4,6 +4,16 @@ use std::fmt::Debug;
 
 pub trait State<'a> {
     fn visit_level<F: FnMut(&Self)>(&self, callback: &mut F);
+
+    fn process_levels<F: FnMut(&Self)>(&self, level: u32, callback: &mut F) {
+        if level == 0 {
+            callback(self);
+        } else {
+            self.visit_level(&mut |s| {
+                s.process_levels(level - 1, callback);
+            });
+        }
+    }
 }
 
 pub trait Bounds: PartialEq + Sized {
@@ -76,22 +86,27 @@ pub trait BoundedState<'a>: State<'a> {
 
     fn get_bounds(&self) -> Self::B {
         let mut b = Self::B::origin();
-        let mut b2: Option<Self::B>;
-        let mut b5;
-        while {
-            b2 = None;
-            self.visit_level(&mut |s| {
-                let b3 = s.transform_bounds(&b);
-                b2 = Some(match &b2 {
-                    None => b3,
-                    Some(b4) => Self::B::union(&b4, &b3),
-                })
-            });
+        for level in 1..4 {
+            let mut first = true;
 
-            b5 = b2.unwrap();
-            !(b.contains(&b5))
-        } {
-            b = b5.grow(0.0);
+            let mut b2: Option<Self::B>;
+            let mut b5;
+            while {
+                b2 = None;
+                self.process_levels(level, &mut |s| {
+                    let b3 = s.transform_bounds(&b);
+                    b2 = Some(match &b2 {
+                        None => b3,
+                        Some(b4) => Self::B::union(&b4, &b3),
+                    })
+                });
+
+                b5 = b2.unwrap();
+                first || !(b.contains(&b5))
+            } {
+                b = b5.grow(0.0);
+                first = false;
+            }
         }
         b
     }
@@ -137,25 +152,15 @@ impl<'a> State<'a> for AffineState<'a> {
     }
 }
 
-pub fn process_levels<'a, S: State<'a>, F: FnMut(&S)>(level: u32, state: &S, callback: &mut F) {
-    if level == 0 {
-        callback(state);
-    } else {
-        state.visit_level(&mut |s| {
-            process_levels(level - 1, s, callback);
-        });
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::flame::{process_levels, AffineState, BoundedState, Bounds, Rect};
+    use crate::flame::{AffineState, BoundedState, Bounds, Rect, State};
     use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
     fn checked_bounds(s: &AffineState) -> Rect {
         let b = s.get_bounds();
         let corners = b.corners();
         let mut out = vec![];
-        process_levels(5, s, &mut |s| {
+        s.process_levels(5, &mut |s| {
             out.extend(corners.iter().map(|p| s.mat.transform_point(p)))
         });
 

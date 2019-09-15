@@ -1,11 +1,13 @@
-use crate::flame::{AffineState, BoundedState};
+use crate::flame::BoundedState;
 use crate::{get_state, process_scene};
-use na::Point2;
+use na;
+use na::Affine2;
 use opengl_graphics::{GlGraphics, OpenGL, Texture};
 use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{MouseCursorEvent, RenderEvent};
 use piston::window::WindowSettings;
-use piston_window::{image, PistonWindow, Size, TextureSettings, Transformed};
+use piston_window::{image, math, PistonWindow, Size, TextureSettings, Transformed};
+use vecmath;
 
 pub fn main() {
     let window_size = Size {
@@ -40,9 +42,7 @@ pub fn main() {
     let texture = Texture::from_image(&img, &TextureSettings::new());
 
     let cursor_color = [0.0, 0.0, 0.0, 1.0];
-    let start = Point2::new(0.0, 0.0);
-    let end = Point2::new(1.0, 0.0);
-    let line = graphics::line::Line::new([0.0, 1.0, 0.0, 1.0], 0.25);
+    let line = graphics::line::Line::new([0.8, 0.0, 0.0, 0.3], 0.0125);
 
     let mut events = Events::new(EventSettings::new().lazy(true));
     while let Some(e) = events.next(&mut window) {
@@ -68,24 +68,35 @@ pub fn main() {
                 let scale = f64::min(window_size.width, window_size.height)
                     / f64::max(bounds.width(), bounds.height());
 
-                graphics::rectangle(
-                    cursor_color,
-                    graphics::rectangle::rectangle_by_corners(
-                        0.0,
-                        0.0,
-                        bounds.width() * scale,
-                        bounds.height() * scale,
-                    ),
-                    c.transform,
-                    g,
+                let trans = math::multiply(
+                    math::multiply(c.transform, math::scale(scale, scale)),
+                    math::translate([-bounds.min.x, -bounds.min.y]),
                 );
 
+                let bounding_rect = graphics::rectangle::rectangle_by_corners(
+                    bounds.min.x,
+                    bounds.min.y,
+                    bounds.max.x,
+                    bounds.max.y,
+                );
+
+                graphics::rectangle(cursor_color, bounding_rect, trans, g);
                 process_scene(state, &mut |state| {
-                    let s2 = (state.mat * start - bounds.min) * scale;
-                    let e2 = (state.mat * end - bounds.min) * scale;
-                    line.draw([s2[0], s2[1], e2[0], e2[1]], &c.draw_state, c.transform, g);
+                    let trans2 = math::multiply(trans, array_from_affine(&state.mat));
+                    let s2 = bounds.min;
+                    let e2 = bounds.max;
+                    line.draw([s2[0], s2[1], e2[0], e2[1]], &c.draw_state, trans2, g);
+                    graphics::rectangle([0.0, 1.0, 0.2, 0.1], bounding_rect, trans2, g);
                 })
             });
         }
     }
+}
+
+fn array_from_affine<T: na::RealField>(a: &Affine2<T>) -> vecmath::Matrix2x3<T> {
+    let m = a.matrix();
+    [
+        [*m.index((0, 0)), *m.index((0, 1)), *m.index((0, 2))],
+        [*m.index((1, 0)), *m.index((1, 1)), *m.index((1, 2))],
+    ]
 }

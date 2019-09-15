@@ -5,9 +5,9 @@ extern crate image as im;
 extern crate nalgebra as na;
 extern crate opengl_graphics;
 extern crate piston;
+extern crate vecmath;
 
-use crate::flame::process_levels;
-use crate::flame::{AffineState, BoundedState};
+use crate::flame::{AffineState, State};
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 
 mod flame;
@@ -15,11 +15,11 @@ mod piston_render;
 mod rendy_render;
 
 fn main() {
-    rendy_render::main()
+    piston_render::main()
 }
 
 pub fn process_scene<F: FnMut(&AffineState)>(state: AffineState, callback: &mut F) {
-    process_levels(9, &state, callback);
+    state.process_levels(3, callback);
 }
 
 #[derive(Debug)]
