@@ -1,8 +1,8 @@
+use crate::fixed_point::fixed_point_iterate;
+use crate::geometry::{Bounds, Rect};
 use nalgebra::{Affine2, Similarity2};
 use reduce::Reduce;
 use std::fmt::Debug;
-use crate::geometry::{Bounds, Rect};
-use crate::fixed_point::fixed_point_iterate;
 
 pub trait State<'a> {
     fn visit_level<F: FnMut(&Self)>(&self, callback: &mut F);
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn shifted_bounds() {
-        let v = Root {
+        let v = Root::<Affine2<f64>> {
             storage: vec![na::convert(
                 Similarity2::from_scaling(0.5) * Translation2::new(5.0, 6.0),
             )],
