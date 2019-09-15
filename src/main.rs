@@ -10,7 +10,9 @@ extern crate vecmath;
 use crate::flame::{AffineState, Root, State};
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 
+mod fixed_point;
 mod flame;
+mod geometry;
 mod piston_render;
 mod rendy_render;
 
@@ -22,7 +24,7 @@ pub fn process_scene<F: FnMut(&AffineState)>(state: AffineState, callback: &mut 
     state.process_levels(3, callback);
 }
 
-pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root {
+pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root<Affine2<f64>> {
     let n: u32 = 3;
     let shift = 0.5;
     let scale = 0.5; // + (cursor[1] as f64) / draw_size[1];
