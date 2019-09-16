@@ -150,7 +150,13 @@ where
     }
 
     fn colors(&self) -> Vec<hal::pso::ColorBlendDesc> {
-        vec![hal::pso::ColorBlendDesc(hal::pso::ColorMask::ALL, hal::pso::BlendState::ADD,); 1]
+        vec![
+            hal::pso::ColorBlendDesc {
+                mask: hal::pso::ColorMask::ALL,
+                blend: Some(hal::pso::BlendState::ADD)
+            };
+            1
+        ]
     }
 
     fn depth_stencil(&self) -> Option<gfx_hal::pso::DepthStencilDesc> {

@@ -16,10 +16,14 @@ image = "0.22.2"
 rand = "0.7.1"
 failure = "0.1.5"
 lazy_static = "1.4.0"
-gfx-hal = "0.2.1"
+gfx-hal = "0.3.1"
 reduce = "0.1.2"
 vecmath = "1.0.0"
 
 [dependencies.rendy]
-version = "0.3.2"
+version = "0.4.0"
 features = ["texture-image", "shader-compiler", "vulkan"]
+
+[dependencies.gfx-backend-vulkan]
+version = "0.3.3"
+features = ["x11"]
