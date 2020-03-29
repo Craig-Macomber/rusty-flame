@@ -13,6 +13,7 @@ use rendy::{
     },
     hal::{self},
     init::winit::{
+        dpi::Size,
         event::{Event, WindowEvent},
         event_loop::{ControlFlow, EventLoop},
         window::{Window, WindowBuilder},
@@ -53,7 +54,7 @@ pub fn main() {
     let config: Config = Default::default();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_inner_size((960, 640).into())
+        .with_inner_size(Size::Physical((960, 640).into()))
         .with_title("Rusty Flame");
 
     let rendy = AnyWindowedRendy::init_auto(&config, window, &event_loop).unwrap();
@@ -87,7 +88,7 @@ pub fn main() {
                         }
                         _ => {}
                     },
-                    Event::EventsCleared => {
+                    Event::MainEventsCleared => {
                         factory.maintain(&mut families);
                         if let Some(ref mut graph) = graph {
                             graph.run(&mut factory, &mut families, &cursor);
@@ -125,7 +126,7 @@ fn build_graph(
 ) -> Graph<Backend, Point2<f64>> {
     let mut graph_builder = GraphBuilder::<Backend, Point2<f64>>::new();
 
-    let size = window.inner_size().to_physical(window.hidpi_factor());
+    let size = window.inner_size();
 
     let color = graph_builder.create_image(
         gfx_hal::image::Kind::D2(size.width as u32, size.height as u32, 1, 1),
