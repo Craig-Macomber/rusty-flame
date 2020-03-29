@@ -18,7 +18,7 @@ mod rendy_demo;
 mod rendy_render;
 
 fn main() {
-    rendy_demo::main()
+    rendy_render::main()
 }
 
 pub fn process_scene<F: FnMut(&AffineState)>(state: AffineState, callback: &mut F) {

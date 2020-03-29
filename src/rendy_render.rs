@@ -211,52 +211,58 @@ where
         assert!(buffers.is_empty());
         assert!(images.is_empty());
         assert!(set_layouts.is_empty());
+        Ok(build_mesh(factory, aux))
+    }
+}
 
-        let root = get_state([aux.x, aux.y], [2.0, 2.0]);
-        let state = root.get_state();
-        let bounds = state.get_bounds();
-        let root_mat = geometry::letter_box(
-            geometry::Rect {
-                min: na::Point2::new(-1.0, -1.0),
-                max: na::Point2::new(1.0, 1.0),
-            },
-            bounds,
-        );
+fn build_mesh<B: gfx_hal::Backend>(
+    factory: &Factory<B>,
+    aux: &Point2<f64>,
+) -> TriangleRenderPipeline<B> {
+    let root = get_state([aux.x, aux.y], [2.0, 2.0]);
+    let state = root.get_state();
+    let bounds = state.get_bounds();
+    let root_mat = geometry::letter_box(
+        geometry::Rect {
+            min: na::Point2::new(-1.0, -1.0),
+            max: na::Point2::new(1.0, 1.0),
+        },
+        bounds,
+    );
 
-        let corners = bounds.corners();
-        let mut verts: Vec<TexCoord> = vec![];
-        let tri_verts = vec![
-            corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
-        ];
+    let corners = bounds.corners();
+    let mut verts: Vec<TexCoord> = vec![];
+    let tri_verts = vec![
+        corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
+    ];
 
-        process_scene(state, &mut |state| {
-            for t in &tri_verts {
-                let t2 = root_mat * state.mat * t;
-                verts.push([t2.x as f32, t2.y as f32].into());
-            }
-        });
-        let vertex_count: u32 = verts.len() as u32;
-
-        let mut vertex_buffer = factory
-            .create_buffer(
-                BufferInfo {
-                    size: u64::from(TexCoord::vertex().stride) * u64::from(vertex_count),
-                    usage: gfx_hal::buffer::Usage::VERTEX,
-                },
-                Dynamic,
-            )
-            .unwrap();
-
-        unsafe {
-            factory
-                .upload_visible_buffer(&mut vertex_buffer, 0, &verts)
-                .unwrap();
+    process_scene(state, &mut |state| {
+        for t in &tri_verts {
+            let t2 = root_mat * state.mat * t;
+            verts.push([t2.x as f32, t2.y as f32].into());
         }
+    });
+    let vertex_count: u32 = verts.len() as u32;
 
-        Ok(TriangleRenderPipeline {
-            vertex: vertex_buffer,
-            vertex_count,
-        })
+    let mut vertex_buffer = factory
+        .create_buffer(
+            BufferInfo {
+                size: u64::from(TexCoord::vertex().stride) * u64::from(vertex_count),
+                usage: gfx_hal::buffer::Usage::VERTEX,
+            },
+            Dynamic,
+        )
+        .unwrap();
+
+    unsafe {
+        factory
+            .upload_visible_buffer(&mut vertex_buffer, 0, &verts)
+            .unwrap();
+    }
+
+    TriangleRenderPipeline {
+        vertex: vertex_buffer,
+        vertex_count,
     }
 }
 
@@ -268,12 +274,14 @@ where
 
     fn prepare(
         &mut self,
-        _factory: &Factory<B>,
+        factory: &Factory<B>,
         _queue: QueueId,
         _set_layouts: &[Handle<DescriptorSetLayout<B>>],
         _index: usize,
-        _aux: &Point2<f64>,
+        aux: &Point2<f64>,
     ) -> PrepareResult {
+        let x = build_mesh(factory, aux);
+        self.vertex = x.vertex;
         PrepareResult::DrawReuse
     }
 
