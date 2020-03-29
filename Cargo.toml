@@ -20,7 +20,7 @@ gfx-hal = "0.4.1"
 reduce = "0.1.2"
 vecmath = "1.0.0"
 env_logger = "0.7.1"
-log = { version = "0.4.8", features = ["max_level_debug", "release_max_level_info"] }
+log = { version = "0.4.8", features = ["max_level_warn", "release_max_level_info"] }
 simple_logger = "1.6.0"
 genmesh = "0.6.2"
 palette = "0.5.0"
@@ -29,7 +29,7 @@ rendy-shader = "0.5.1"
 
 [dependencies.rendy]
 version = "0.5.1"
-features = ["texture-image", "shader-compiler", "vulkan", "init-winit"]
+features = ["texture-image", "shader-compiler", "vulkan", "init-winit" ] # "no-slow-safety-checks"
 
 [dependencies.gfx-backend-vulkan]
 version = "0.4.1"

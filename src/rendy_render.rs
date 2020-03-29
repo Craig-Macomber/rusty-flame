@@ -1,5 +1,5 @@
 use crate::geometry;
-use na::Point2;
+use na::{Affine2, Matrix3, Point2, Vector2};
 
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
@@ -21,33 +21,48 @@ use rendy::{
     init::AnyWindowedRendy,
     memory::Dynamic,
     mesh::{AsVertex, TexCoord},
-    resource::{Buffer, BufferInfo, DescriptorSetLayout, Escape, Handle},
-    shader::{PathBufShaderInfo, ShaderKind, SourceLanguage},
+    resource::{Buffer, BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Handle},
+    shader::{PathBufShaderInfo, ShaderKind, SourceLanguage, SpirvShader},
 };
 
+use crate::flame::State;
+
 use crate::flame::BoundedState;
-use crate::{get_state, process_scene};
+use crate::{get_state, process_scene, BASE_LEVELS, INSTANCE_LEVELS};
+
+use geometry::Rect;
+use rendy::shader::SpirvReflection;
+use rendy_core::types::{vertex::Tangent, Layout};
 
 type Backend = rendy::vulkan::Backend;
 
 lazy_static::lazy_static! {
-    static ref VERTEX: PathBufShaderInfo = PathBufShaderInfo::new(
+    static ref VERTEX_OLD: SpirvShader = PathBufShaderInfo::new(
         std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/triangle/tri.vert")),
         ShaderKind::Vertex,
         SourceLanguage::GLSL,
         "main",
-    );
+    ).precompile().unwrap();
 
-    static ref FRAGMENT: PathBufShaderInfo = PathBufShaderInfo::new(
+    static ref VERTEX: SpirvShader = PathBufShaderInfo::new(
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/sprite.vert")),
+        ShaderKind::Vertex,
+        SourceLanguage::GLSL,
+        "main",
+    ).precompile().unwrap();
+
+    static ref FRAGMENT: SpirvShader = PathBufShaderInfo::new(
         std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/triangle/tri.frag")),
         ShaderKind::Fragment,
         SourceLanguage::GLSL,
         "main",
-    );
+    ).precompile().unwrap();
 
     static ref SHADERS: rendy::shader::ShaderSetBuilder = rendy::shader::ShaderSetBuilder::default()
         .with_vertex(&*VERTEX).unwrap()
         .with_fragment(&*FRAGMENT).unwrap();
+
+    static ref SHADER_REFLECTION: SpirvReflection = SHADERS.reflect().unwrap();
 }
 
 pub fn main() {
@@ -166,8 +181,10 @@ struct TriangleRenderPipelineDesc;
 
 #[derive(Debug)]
 struct TriangleRenderPipeline<B: gfx_hal::Backend> {
-    vertex: Escape<Buffer<B>>,
+    vertex_buffer: Escape<Buffer<B>>,
     vertex_count: u32,
+    instance_buffer: Escape<Buffer<B>>,
+    instance_count: u32,
 }
 
 impl<B> SimpleGraphicsPipelineDesc<B, Point2<f64>> for TriangleRenderPipelineDesc
@@ -183,7 +200,20 @@ where
         gfx_hal::pso::ElemStride,
         gfx_hal::pso::VertexInputRate,
     )> {
-        vec![TexCoord::vertex().gfx_vertex_input_desc(gfx_hal::pso::VertexInputRate::Vertex)]
+        vec![
+            SHADER_REFLECTION
+                .attributes(&["vertex_position"])
+                .unwrap()
+                .gfx_vertex_input_desc(hal::pso::VertexInputRate::Vertex),
+            SHADER_REFLECTION
+                .attributes(&["sprite_position_1", "sprite_position_2"])
+                .unwrap()
+                .gfx_vertex_input_desc(hal::pso::VertexInputRate::Instance(1)),
+        ]
+    }
+
+    fn layout(&self) -> Layout {
+        return SHADER_REFLECTION.layout().unwrap();
     }
 
     fn colors(&self) -> Vec<hal::pso::ColorBlendDesc> {
@@ -242,13 +272,13 @@ fn build_mesh<B: gfx_hal::Backend>(
 
     let corners = bounds.corners();
     let mut verts: Vec<TexCoord> = vec![];
-    let tri_verts = vec![
+    let tri_verts = [
         corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
     ];
 
-    process_scene(state, &mut |state| {
-        for t in &tri_verts {
-            let t2 = root_mat * state.mat * t;
+    state.process_levels(BASE_LEVELS, &mut |state| {
+        for t in tri_verts.iter() {
+            let t2 = state.mat * t;
             verts.push([t2.x as f32, t2.y as f32].into());
         }
     });
@@ -264,15 +294,51 @@ fn build_mesh<B: gfx_hal::Backend>(
         )
         .unwrap();
 
+    let mut instances: Vec<Tangent> = vec![];
+    state.process_levels(INSTANCE_LEVELS, &mut |state| {
+        let m: Matrix3<f64> = (root_mat * state.mat).to_homogeneous();
+        instances.push(Tangent {
+            0: [
+                *m.get((0, 0)).unwrap() as f32,
+                *m.get((0, 1)).unwrap() as f32,
+                *m.get((0, 2)).unwrap() as f32,
+                0f32,
+            ],
+        });
+        instances.push(Tangent {
+            0: [
+                *m.get((1, 0)).unwrap() as f32,
+                *m.get((1, 1)).unwrap() as f32,
+                *m.get((1, 2)).unwrap() as f32,
+                0f32,
+            ],
+        });
+    });
+    let instance_count: u32 = instances.len() as u32 / 2;
+    let mut instance_buffer = factory
+        .create_buffer(
+            BufferInfo {
+                size: u64::from(Tangent::vertex().stride) * u64::from(instance_count * 2),
+                usage: gfx_hal::buffer::Usage::VERTEX,
+            },
+            Dynamic,
+        )
+        .unwrap();
+
     unsafe {
         factory
             .upload_visible_buffer(&mut vertex_buffer, 0, &verts)
             .unwrap();
+        factory
+            .upload_visible_buffer(&mut instance_buffer, 0, &instances)
+            .unwrap();
     }
 
     TriangleRenderPipeline {
-        vertex: vertex_buffer,
+        vertex_buffer,
         vertex_count,
+        instance_buffer,
+        instance_count,
     }
 }
 
@@ -302,8 +368,9 @@ where
         _aux: &Point2<f64>,
     ) {
         unsafe {
-            encoder.bind_vertex_buffers(0, Some((self.vertex.raw(), 0)));
-            encoder.draw(0..self.vertex_count, 0..1);
+            encoder.bind_vertex_buffers(0, std::iter::once((self.vertex_buffer.raw(), 0)));
+            encoder.bind_vertex_buffers(1, std::iter::once((self.instance_buffer.raw(), 0)));
+            encoder.draw(0..self.vertex_count, 0..self.instance_count);
         }
     }
 

@@ -23,8 +23,14 @@ fn main() {
     rendy_render::main()
 }
 
+pub const BASE_LEVELS: u32 = 8;
+
+pub const INSTANCE_LEVELS: u32 = 7;
+
+pub const LEVELS: u32 = BASE_LEVELS + INSTANCE_LEVELS;
+
 pub fn process_scene<F: FnMut(&AffineState)>(state: AffineState, callback: &mut F) {
-    state.process_levels(12, callback);
+    state.process_levels(LEVELS, callback);
 }
 
 pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root<Affine2<f64>> {
