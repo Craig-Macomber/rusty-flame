@@ -13,7 +13,7 @@ pub fn fixed_point_iterate<V: PartialEq, F: Fn(&V) -> V>(initial: V, f: F) -> V 
 
 #[cfg(test)]
 mod tests {
-    use crate::fixed_point::{fixed_point_iterate};
+    use crate::fixed_point::fixed_point_iterate;
 
     #[test]
     fn fixed_point() {

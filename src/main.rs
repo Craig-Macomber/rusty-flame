@@ -5,6 +5,7 @@ extern crate image as im;
 extern crate nalgebra as na;
 extern crate opengl_graphics;
 extern crate piston;
+extern crate simple_logger;
 extern crate vecmath;
 
 use crate::flame::{AffineState, Root, State};
@@ -18,11 +19,12 @@ mod rendy_demo;
 mod rendy_render;
 
 fn main() {
+    simple_logger::init().unwrap();
     rendy_render::main()
 }
 
 pub fn process_scene<F: FnMut(&AffineState)>(state: AffineState, callback: &mut F) {
-    state.process_levels(9, callback);
+    state.process_levels(12, callback);
 }
 
 pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root<Affine2<f64>> {

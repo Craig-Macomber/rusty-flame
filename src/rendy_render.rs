@@ -54,7 +54,7 @@ pub fn main() {
     let config: Config = Default::default();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_inner_size(Size::Physical((960, 640).into()))
+        .with_inner_size(Size::Physical((3000, 2000).into()))
         .with_title("Rusty Flame");
 
     let rendy = AnyWindowedRendy::init_auto(&config, window, &event_loop).unwrap();
@@ -96,6 +96,15 @@ pub fn main() {
                         }
 
                         elapsed = started.elapsed();
+                        if frame % 100 == 0 {
+                            let elapsed_ns = elapsed.as_secs() * 1_000_000_000 + elapsed.subsec_nanos() as u64;
+
+                            log::info!(
+                                "Frame Time: {:?}. FPS: {}",
+                                elapsed / frame as u32,
+                                frame * 1_000_000_000 / elapsed_ns
+                            );
+                        }
                     }
                     _ => {}
                 }
@@ -104,8 +113,9 @@ pub fn main() {
                     let elapsed_ns = elapsed.as_secs() * 1_000_000_000 + elapsed.subsec_nanos() as u64;
 
                     log::info!(
-                        "Elapsed: {:?}. Frames: {}. FPS: {}",
+                        "Elapsed: {:?}. Frame Time: {:?}. Frames: {}. FPS: {}",
                         elapsed,
+                        elapsed / frame as u32,
                         frame,
                         frame * 1_000_000_000 / elapsed_ns
                     );
@@ -280,9 +290,8 @@ where
         _index: usize,
         aux: &Point2<f64>,
     ) -> PrepareResult {
-        let x = build_mesh(factory, aux);
-        self.vertex = x.vertex;
-        PrepareResult::DrawReuse
+        *self = build_mesh(factory, aux);
+        PrepareResult::DrawRecord
     }
 
     fn draw(
