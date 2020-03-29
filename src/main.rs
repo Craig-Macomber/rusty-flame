@@ -14,6 +14,7 @@ mod fixed_point;
 mod flame;
 mod geometry;
 mod piston_render;
+mod rendy_demo;
 mod rendy_render;
 
 fn main() {

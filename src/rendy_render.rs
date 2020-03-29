@@ -1,18 +1,27 @@
 use crate::geometry;
 use na::Point2;
+
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
     factory::{Config, Factory},
     graph::{
-        present::PresentNode, render::*, Graph, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
+        present::PresentNode,
+        render::{
+            PrepareResult, RenderGroupBuilder, SimpleGraphicsPipeline, SimpleGraphicsPipelineDesc,
+        },
+        Graph, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
     },
-    hal,
+    hal::{self},
+    init::winit::{
+        event::{Event, WindowEvent},
+        event_loop::{ControlFlow, EventLoop},
+        window::{Window, WindowBuilder},
+    },
+    init::AnyWindowedRendy,
     memory::Dynamic,
     mesh::{AsVertex, TexCoord},
-    resource::Buffer,
-    resource::{BufferInfo, DescriptorSetLayout, Escape, Handle},
+    resource::{Buffer, BufferInfo, DescriptorSetLayout, Escape, Handle},
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage},
-    wsi::winit::{Event, EventsLoop, Window, WindowBuilder, WindowEvent},
 };
 
 use crate::flame::BoundedState;
@@ -42,74 +51,91 @@ lazy_static::lazy_static! {
 
 pub fn main() {
     let config: Config = Default::default();
-
-    let (mut factory, mut families): (Factory<Backend>, _) = rendy::factory::init(config).unwrap();
-
-    let mut event_loop = EventsLoop::new();
-
+    let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("Rusty Flame")
-        .build(&event_loop)
-        .unwrap();
+        .with_inner_size((960, 640).into())
+        .with_title("Rusty Flame");
 
-    event_loop.poll_events(|_| ());
+    let rendy = AnyWindowedRendy::init_auto(&config, window, &event_loop).unwrap();
+    rendy::with_any_windowed_rendy!((rendy)
+        (mut factory, mut families, surface, window) => {
+            let mut cursor = na::Point2::new(0.0, 0.0);
+            let mut graph = Some(build_graph(&mut factory, &mut families, surface, &window, cursor));
 
-    let mut cursor = Point2::new(0.0, 0.0);
+            let started = std::time::Instant::now();
 
-    loop {
-        factory.maintain(&mut families);
+            let mut frame = 0u64;
+            let mut elapsed = started.elapsed();
 
-        let mut should_close = false;
-        event_loop.poll_events(|event| match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                should_close = true;
-            }
-            Event::WindowEvent {
-                event: WindowEvent::CursorMoved { position, .. },
-                ..
-            } => {
-                let size = window.get_inner_size().unwrap();
-                cursor = Point2::new(
-                    position.x / size.width * 2.0 - 1.0,
-                    position.y / size.height * 2.0 - 1.0,
-                );
-            }
-            _ => {}
-        });
-        if should_close {
-            break;
+            event_loop.run(move |event, _, control_flow| {
+                *control_flow = ControlFlow::Poll;
+                match event {
+                    Event::WindowEvent { event, .. } => match event {
+                        WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                        WindowEvent::Resized(_dims) => {
+                            let started = std::time::Instant::now();
+                            //graph.take().unwrap().dispose(&mut factory, &cursor);
+                            log::trace!("Graph disposed in: {:?}", started.elapsed());
+                            return;
+                        }
+                        WindowEvent::CursorMoved { position, .. } => {
+                            let size = window.inner_size();
+                            cursor = Point2::new(
+                                (position.x as f64)/ (size.width as f64) * 2.0 - 1.0,
+                                (position.y as f64)/ (size.height as f64) * 2.0 - 1.0,
+                            );
+                        }
+                        _ => {}
+                    },
+                    Event::EventsCleared => {
+                        factory.maintain(&mut families);
+                        if let Some(ref mut graph) = graph {
+                            graph.run(&mut factory, &mut families, &cursor);
+                            frame += 1;
+                        }
+
+                        elapsed = started.elapsed();
+                    }
+                    _ => {}
+                }
+
+                if *control_flow == ControlFlow::Exit && graph.is_some() {
+                    let elapsed_ns = elapsed.as_secs() * 1_000_000_000 + elapsed.subsec_nanos() as u64;
+
+                    log::info!(
+                        "Elapsed: {:?}. Frames: {}. FPS: {}",
+                        elapsed,
+                        frame,
+                        frame * 1_000_000_000 / elapsed_ns
+                    );
+
+                    graph.take().unwrap().dispose(&mut factory, &cursor);
+                }
+            });
         }
-        let mut graph = make_graph(&mut factory, &mut families, &window, cursor);
-        graph.run(&mut factory, &mut families, &cursor);
-        graph.dispose(&mut factory, &cursor);
-    }
+    );
 }
 
-fn make_graph(
+fn build_graph(
     factory: &mut Factory<Backend>,
     families: &mut Families<Backend>,
+    surface: rendy::wsi::Surface<Backend>,
     window: &Window,
     cursor: Point2<f64>,
 ) -> Graph<Backend, Point2<f64>> {
-    let surface = factory.create_surface(window);
-
     let mut graph_builder = GraphBuilder::<Backend, Point2<f64>>::new();
 
-    let size = window
-        .get_inner_size()
-        .unwrap()
-        .to_physical(window.get_hidpi_factor());
+    let size = window.inner_size().to_physical(window.hidpi_factor());
 
     let color = graph_builder.create_image(
         gfx_hal::image::Kind::D2(size.width as u32, size.height as u32, 1, 1),
         1,
         factory.get_surface_format(&surface),
-        Some(gfx_hal::command::ClearValue::Color(
-            [0.0, 0.0, 0.0, 0.0].into(),
-        )),
+        Some(hal::command::ClearValue {
+            color: hal::command::ClearColor {
+                float32: [0.0, 0.0, 0.0, 0.0],
+            },
+        }),
     );
 
     let pass = graph_builder.add_node(
@@ -180,7 +206,7 @@ where
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
         set_layouts: &[Handle<DescriptorSetLayout<B>>],
-    ) -> Result<TriangleRenderPipeline<B>, failure::Error> {
+    ) -> Result<TriangleRenderPipeline<B>, gfx_hal::pso::CreationError> {
         assert!(buffers.is_empty());
         assert!(images.is_empty());
         assert!(set_layouts.is_empty());
