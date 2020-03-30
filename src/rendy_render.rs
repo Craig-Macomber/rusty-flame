@@ -36,13 +36,6 @@ use rendy_core::types::Layout;
 type Backend = rendy::vulkan::Backend;
 
 lazy_static::lazy_static! {
-    static ref VERTEX_OLD: SpirvShader = PathBufShaderInfo::new(
-        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/triangle/tri.vert")),
-        ShaderKind::Vertex,
-        SourceLanguage::GLSL,
-        "main",
-    ).precompile().unwrap();
-
     static ref VERTEX: SpirvShader = PathBufShaderInfo::new(
         std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/sprite.vert")),
         ShaderKind::Vertex,
@@ -51,7 +44,7 @@ lazy_static::lazy_static! {
     ).precompile().unwrap();
 
     static ref FRAGMENT: SpirvShader = PathBufShaderInfo::new(
-        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/triangle/tri.frag")),
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/solid.frag")),
         ShaderKind::Fragment,
         SourceLanguage::GLSL,
         "main",
