@@ -1,4 +1,3 @@
-use crate::geometry;
 use na::{Matrix3, Point2};
 
 use rendy::{
@@ -22,15 +21,14 @@ use rendy::{
     memory::Dynamic,
     mesh::{AsVertex, TexCoord},
     resource::{Buffer, BufferInfo, DescriptorSetLayout, Escape, Handle},
-    shader::{PathBufShaderInfo, ShaderKind, SourceLanguage, SpirvShader},
+    shader::{PathBufShaderInfo, ShaderKind, SourceLanguage, SpirvReflection, SpirvShader},
 };
 
-use crate::flame::State;
+use crate::{
+    flame::{BoundedState, State},
+    geometry, get_state, BASE_LEVELS, INSTANCE_LEVELS,
+};
 
-use crate::flame::BoundedState;
-use crate::{get_state, BASE_LEVELS, INSTANCE_LEVELS};
-
-use rendy::shader::SpirvReflection;
 use rendy_core::types::Layout;
 
 type Backend = rendy::vulkan::Backend;
