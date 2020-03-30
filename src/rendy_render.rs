@@ -67,11 +67,8 @@ pub fn main() {
         (mut factory, mut families, surface, window) => {
             let mut cursor = na::Point2::new(0.0, 0.0);
             let mut graph = Some(build_graph(&mut factory, &mut families, surface, &window, cursor));
-
             let started = std::time::Instant::now();
-
             let mut frame = 0u64;
-            let mut elapsed = started.elapsed();
 
             event_loop.run(move |event, _, control_flow| {
                 *control_flow = ControlFlow::Poll;
@@ -79,10 +76,7 @@ pub fn main() {
                     Event::WindowEvent { event, .. } => match event {
                         WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                         WindowEvent::Resized(_dims) => {
-                            let started = std::time::Instant::now();
-                            //graph.take().unwrap().dispose(&mut factory, &cursor);
-                            log::trace!("Graph disposed in: {:?}", started.elapsed());
-                            return;
+                            // TODO: support resize: https://github.com/amethyst/rendy/issues/54
                         }
                         WindowEvent::CursorMoved { position, .. } => {
                             let size = window.inner_size();
@@ -95,36 +89,21 @@ pub fn main() {
                     },
                     Event::MainEventsCleared => {
                         factory.maintain(&mut families);
-                        if let Some(ref mut graph) = graph {
-                            graph.run(&mut factory, &mut families, &cursor);
-                            frame += 1;
-                        }
-
-                        elapsed = started.elapsed();
+                        graph.as_mut().unwrap().run(&mut factory, &mut families, &cursor);
+                        frame += 1;
                         if frame % 100 == 0 {
-                            let elapsed_ns = elapsed.as_secs() * 1_000_000_000 + elapsed.subsec_nanos() as u64;
-
+                            let elapsed = started.elapsed();
                             log::info!(
-                                "Frame Time: {:?}. FPS: {}",
+                                "Frame Time: {:?}. FPS: {:.3}",
                                 elapsed / frame as u32,
-                                frame * 1_000_000_000 / elapsed_ns
+                                frame as f64 / elapsed.as_secs_f64()
                             );
                         }
                     }
                     _ => {}
                 }
 
-                if *control_flow == ControlFlow::Exit && graph.is_some() {
-                    let elapsed_ns = elapsed.as_secs() * 1_000_000_000 + elapsed.subsec_nanos() as u64;
-
-                    log::info!(
-                        "Elapsed: {:?}. Frame Time: {:?}. Frames: {}. FPS: {}",
-                        elapsed,
-                        elapsed / frame as u32,
-                        frame,
-                        frame * 1_000_000_000 / elapsed_ns
-                    );
-
+                if *control_flow == ControlFlow::Exit {
                     graph.take().unwrap().dispose(&mut factory, &cursor);
                 }
             });
