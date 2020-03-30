@@ -1,5 +1,5 @@
 use crate::geometry;
-use na::{Affine2, Matrix3, Point2, Vector2};
+use na::{Matrix3, Point2};
 
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
@@ -21,18 +21,17 @@ use rendy::{
     init::AnyWindowedRendy,
     memory::Dynamic,
     mesh::{AsVertex, TexCoord},
-    resource::{Buffer, BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Handle},
+    resource::{Buffer, BufferInfo, DescriptorSetLayout, Escape, Handle},
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage, SpirvShader},
 };
 
 use crate::flame::State;
 
 use crate::flame::BoundedState;
-use crate::{get_state, process_scene, BASE_LEVELS, INSTANCE_LEVELS};
+use crate::{get_state, BASE_LEVELS, INSTANCE_LEVELS};
 
-use geometry::Rect;
 use rendy::shader::SpirvReflection;
-use rendy_core::types::{vertex::Tangent, Layout};
+use rendy_core::types::Layout;
 
 type Backend = rendy::vulkan::Backend;
 
@@ -294,31 +293,29 @@ fn build_mesh<B: gfx_hal::Backend>(
         )
         .unwrap();
 
-    let mut instances: Vec<Tangent> = vec![];
+    let mut instances: Vec<f32> = vec![];
     state.process_levels(INSTANCE_LEVELS, &mut |state| {
         let m: Matrix3<f64> = (root_mat * state.mat).to_homogeneous();
-        instances.push(Tangent {
-            0: [
-                *m.get((0, 0)).unwrap() as f32,
-                *m.get((0, 1)).unwrap() as f32,
-                *m.get((0, 2)).unwrap() as f32,
+        let s = m.as_slice();
+        instances.extend(
+            [
+                s[0] as f32,
+                s[3] as f32,
+                s[6] as f32,
                 0f32,
-            ],
-        });
-        instances.push(Tangent {
-            0: [
-                *m.get((1, 0)).unwrap() as f32,
-                *m.get((1, 1)).unwrap() as f32,
-                *m.get((1, 2)).unwrap() as f32,
+                s[1] as f32,
+                s[4] as f32,
+                s[7] as f32,
                 0f32,
-            ],
-        });
+            ]
+            .iter(),
+        );
     });
-    let instance_count: u32 = instances.len() as u32 / 2;
+    let instance_count: u32 = instances.len() as u32 / 8;
     let mut instance_buffer = factory
         .create_buffer(
             BufferInfo {
-                size: u64::from(Tangent::vertex().stride) * u64::from(instance_count * 2),
+                size: (instances.len() * std::mem::size_of::<f32>()) as u64,
                 usage: gfx_hal::buffer::Usage::VERTEX,
             },
             Dynamic,
