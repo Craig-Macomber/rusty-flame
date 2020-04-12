@@ -9,6 +9,6 @@ layout(set = 0, binding = 1) uniform texture2D hdr_tex;
 
 void main() {
     float v = texture(sampler2D(hdr_tex, tex_sampler), frag_uv.xy).r;
-    float l = log(v + 1);
-    color = vec4(l / 4, l, l * 4, 1.0);
+    float l = log2(v) / 5;
+    color = vec4(l + 1, l, l - 1, 1.0);
 }

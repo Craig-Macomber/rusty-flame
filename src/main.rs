@@ -36,7 +36,7 @@ pub fn process_scene<F: FnMut(&AffineState)>(state: AffineState, callback: &mut 
 pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root<Affine2<f64>> {
     let n: u32 = 3;
     let shift = 0.5;
-    let scale = 0.5; // + (cursor[1] as f64) / draw_size[1];
+    let scale = 0.5 + f64::min((cursor[1] as f64) / draw_size[1] * 0.2, 0.2);
     let sm = Similarity2::from_scaling(scale);
 
     let mut va = (0..n)

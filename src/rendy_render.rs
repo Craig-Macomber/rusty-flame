@@ -65,7 +65,7 @@ pub fn main() {
         (mut factory, mut families, surface, window) => {
             let mut cursor = na::Point2::new(0.0, 0.0);
             let mut graph = Some(build_graph(&mut factory, &mut families, surface, &window, cursor));
-            let started = std::time::Instant::now();
+            let mut started = std::time::Instant::now();
             let mut frame = 0u64;
 
             event_loop.run(move |event, _, control_flow| {
@@ -96,6 +96,8 @@ pub fn main() {
                                 elapsed / frame as u32,
                                 frame as f64 / elapsed.as_secs_f64()
                             );
+                            started = std::time::Instant::now();
+                            frame = 0;
                         }
                     }
                     _ => {}
@@ -249,7 +251,7 @@ fn build_mesh<B: gfx_hal::Backend>(
     factory: &Factory<B>,
     aux: &Point2<f64>,
 ) -> TriangleRenderPipeline<B> {
-    let root = get_state([aux.x, aux.y], [2.0, 2.0]);
+    let root = get_state([aux.x + 1.0, aux.y + 1.0], [2.0, 2.0]);
     let state = root.get_state();
     let bounds = state.get_bounds();
     let root_mat = geometry::letter_box(
