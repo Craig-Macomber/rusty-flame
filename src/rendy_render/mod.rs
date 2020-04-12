@@ -1,8 +1,10 @@
+mod post_process;
+
 use na::{Matrix3, Point2};
 
 use crate::{
     flame::{BoundedState, State},
-    geometry, get_state, post_process, BASE_LEVELS, INSTANCE_LEVELS,
+    geometry, get_state, BASE_LEVELS, INSTANCE_LEVELS,
 };
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
