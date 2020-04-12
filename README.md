@@ -1,7 +1,7 @@
 # rusty-flame
 GPU accelerated fractal flame generator written in rust.
 
-Goal is to get high quality 4k 60fps interactive rendering of as many fractal flames as possible. Difficulty varies wildly depending on the fractal, but there are several tricks that can enable a wide variety to be rendered well.
+Goal is to get high quality 4k 60fps interactive rendering of as many fractal flames as possible. Difficulty varies wildly depending on the fractal, but there are several tricks that can enable a wide variety to be rendered well. Currently, just affine transforms are supported with density based coloring. Other kinds of transforms and coloring will be explored in the future.
 
 Planned rendering algorithm is:
 
@@ -19,11 +19,14 @@ Features I'd like to implement:
 - [x] GPU accelerated rendering (with Rendy)
 - [x] Bounds Computation
 - [x] Render multiple iterations in a single draw call
+    [x] Using generated meshes
+    [x] Using instanced rendering
+- [ ] Scale factor adjusted density for non-uniform scale factors
 - [ ] Recursive render to texture for improved quality and performance
     - [ ] Use mip-maps/summed area tables (maybe anisotropic) for efficient sampling for fractals with highly variable scale factors
-- [ ] Logarithmic density visualization
-    - [ ] Output tone-mapping
-    - [ ] Floating point internal buffers
+- [x] Logarithmic density visualization
+    - [x] Output tone-mapping
+    - [x] Floating point internal buffers
     - [ ] Mitigation for overflow/saturation (normalizing and/or value custom encoding)
 - [ ] Path based coloring
 - Support non-affine functions:
@@ -34,3 +37,4 @@ Features I'd like to implement:
 - [ ] Web Support
 - [ ] Performance testing
 - [ ] Quality testing
+- [ ] Fractal editing GUI
