@@ -210,11 +210,11 @@ where
 
     fn prepare(
         &mut self,
-        factory: &Factory<B>,
+        _factory: &Factory<B>,
         _queue: QueueId,
         _set_layouts: &[Handle<DescriptorSetLayout<B>>],
         _index: usize,
-        aux: &Point2<f64>,
+        _aux: &Point2<f64>,
     ) -> PrepareResult {
         PrepareResult::DrawReuse
     }

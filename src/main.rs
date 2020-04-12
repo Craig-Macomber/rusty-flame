@@ -13,10 +13,10 @@ use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 
 mod fixed_point;
 mod flame;
-mod geometry;
-mod piston_render;
+pub mod geometry;
+pub mod piston_render;
 mod post_process;
-mod rendy_render;
+pub mod rendy_render;
 
 fn main() {
     simple_logger::init().unwrap();
