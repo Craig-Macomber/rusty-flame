@@ -15,6 +15,7 @@ mod fixed_point;
 mod flame;
 mod geometry;
 mod piston_render;
+mod post_process;
 mod rendy_render;
 
 fn main() {

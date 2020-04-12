@@ -1,7 +1,12 @@
 use na::{Matrix3, Point2};
 
+use crate::{
+    flame::{BoundedState, State},
+    geometry, get_state, post_process, BASE_LEVELS, INSTANCE_LEVELS,
+};
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
+    core::types::Layout,
     factory::{Config, Factory},
     graph::{
         present::PresentNode,
@@ -23,13 +28,6 @@ use rendy::{
     resource::{Buffer, BufferInfo, DescriptorSetLayout, Escape, Handle},
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage, SpirvReflection, SpirvShader},
 };
-
-use crate::{
-    flame::{BoundedState, State},
-    geometry, get_state, BASE_LEVELS, INSTANCE_LEVELS,
-};
-
-use rendy_core::types::Layout;
 
 type Backend = rendy::vulkan::Backend;
 
@@ -121,26 +119,49 @@ fn build_graph(
     let mut graph_builder = GraphBuilder::<Backend, Point2<f64>>::new();
 
     let size = window.inner_size();
+    let window_size = gfx_hal::image::Kind::D2(size.width as u32, size.height as u32, 1, 1);
 
-    let color = graph_builder.create_image(
-        gfx_hal::image::Kind::D2(size.width as u32, size.height as u32, 1, 1),
+    let accumulation_image = graph_builder.create_image(
+        window_size,
         1,
-        factory.get_surface_format(&surface),
+        hal::format::Format::R32Sfloat,
         Some(hal::command::ClearValue {
             color: hal::command::ClearColor {
-                float32: [0.0, 0.0, 0.0, 0.0],
+                float32: [0.0, 0.0, 0.2, 0.0],
             },
         }),
     );
 
-    let pass = graph_builder.add_node(
+    let accumulation_node = graph_builder.add_node(
         TriangleRenderPipeline::builder()
             .into_subpass()
-            .with_color(color)
+            .with_color(accumulation_image)
             .into_pass(),
     );
 
-    graph_builder.add_node(PresentNode::builder(&factory, surface, color).with_dependency(pass));
+    let output_image = graph_builder.create_image(
+        window_size,
+        1,
+        factory.get_surface_format(&surface),
+        Some(hal::command::ClearValue {
+            color: hal::command::ClearColor {
+                float32: [0.2, 0.0, 0.0, 0.0],
+            },
+        }),
+    );
+
+    let post_process_node = graph_builder.add_node(
+        post_process::Pipeline::builder()
+            .with_image(accumulation_image)
+            .into_subpass()
+            .with_dependency(accumulation_node)
+            .with_color(output_image)
+            .into_pass(),
+    );
+
+    graph_builder.add_node(
+        PresentNode::builder(&factory, surface, output_image).with_dependency(post_process_node),
+    );
 
     graph_builder.build(factory, families, &cursor).unwrap()
 }
