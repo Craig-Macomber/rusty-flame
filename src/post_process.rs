@@ -19,6 +19,7 @@ use rendy::{
 };
 
 use crate::geometry;
+use crate::rendy_render::ACCUMULATION_FORMAT;
 
 lazy_static::lazy_static! {
     static ref VERTEX: SpirvShader = PathBufShaderInfo::new(
@@ -128,7 +129,7 @@ where
                 accumulation_image.clone(),
                 ImageViewInfo {
                     view_kind: ViewKind::D2,
-                    format: hal::format::Format::R32Sfloat,
+                    format: ACCUMULATION_FORMAT,
                     swizzle: hal::format::Swizzle::NO,
                     range: images[0].range.clone(),
                 },

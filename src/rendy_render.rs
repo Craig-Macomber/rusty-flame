@@ -111,6 +111,8 @@ pub fn main() {
     );
 }
 
+pub(crate) const ACCUMULATION_FORMAT: hal::format::Format = hal::format::Format::R32Sfloat;
+
 fn build_graph(
     factory: &mut Factory<Backend>,
     families: &mut Families<Backend>,
@@ -126,10 +128,10 @@ fn build_graph(
     let accumulation_image = graph_builder.create_image(
         window_size,
         1,
-        hal::format::Format::R32Sfloat,
+        ACCUMULATION_FORMAT,
         Some(hal::command::ClearValue {
             color: hal::command::ClearColor {
-                float32: [0.0, 0.0, 0.2, 0.0],
+                float32: [0.0, 0.0, 0.0, 0.0],
             },
         }),
     );
