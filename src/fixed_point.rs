@@ -1,6 +1,6 @@
 use std::mem;
 
-pub fn fixed_point_iterate<V: PartialEq, F: Fn(&V) -> V>(initial: V, f: F) -> V {
+pub fn iterate<V: PartialEq, F: Fn(&V) -> V>(initial: V, f: F) -> V {
     let mut v: V = initial;
     loop {
         let v_new = f(&v);
@@ -13,10 +13,10 @@ pub fn fixed_point_iterate<V: PartialEq, F: Fn(&V) -> V>(initial: V, f: F) -> V 
 
 #[cfg(test)]
 mod tests {
-    use crate::fixed_point::fixed_point_iterate;
+    use crate::fixed_point;
 
     #[test]
     fn fixed_point() {
-        assert_eq!(fixed_point_iterate(10, |i| i / 2), 0);
+        assert_eq!(fixed_point::iterate(10, |i| i / 2), 0);
     }
 }

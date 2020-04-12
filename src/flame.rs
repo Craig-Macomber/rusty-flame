@@ -1,4 +1,4 @@
-use crate::fixed_point::fixed_point_iterate;
+use crate::fixed_point;
 use crate::geometry::{Bounds, Rect};
 use nalgebra::{Affine2, Similarity2};
 use reduce::Reduce;
@@ -24,7 +24,7 @@ pub trait BoundedState<'a>: State<'a> {
     fn get_bounds(&self) -> Self::B {
         let mut b = Self::B::origin();
         for level in 1..4 {
-            let b_new = fixed_point_iterate(b, |input_bounds: &Self::B| {
+            let b_new = fixed_point::iterate(b, |input_bounds: &Self::B| {
                 let mut b2: Option<Self::B> = None;
                 self.process_levels(level, &mut |s| {
                     let b3 = s.transform_bounds(input_bounds);
@@ -95,7 +95,7 @@ impl Root<Affine2<f64>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::flame::{fixed_point_iterate, AffineState, BoundedState, Bounds, Rect, Root, State};
+    use crate::flame::{fixed_point, AffineState, BoundedState, Bounds, Rect, Root, State};
     use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 
     fn checked_bounds(s: &AffineState) -> Rect {
@@ -126,7 +126,7 @@ mod tests {
         };
 
         assert_eq!(
-            fixed_point_iterate(Point2::new(0.0, 0.0), |p| v.storage[0].transform_point(p)),
+            fixed_point::iterate(Point2::new(0.0, 0.0), |p| v.storage[0].transform_point(p)),
             Point2::new(5.0, 6.0)
         );
 
@@ -145,11 +145,11 @@ mod tests {
         let state = AffineState::new(na::convert(Similarity2::from_scaling(1.0)), &v);
 
         assert_eq!(
-            fixed_point_iterate(Point2::new(5.0, 5.0), |p| v[0].transform_point(p)),
+            fixed_point::iterate(Point2::new(5.0, 5.0), |p| v[0].transform_point(p)),
             Point2::new(0.0, 0.0)
         );
         assert_eq!(
-            fixed_point_iterate(Point2::new(5.0, 5.0), |p| v[1].transform_point(p)),
+            fixed_point::iterate(Point2::new(5.0, 5.0), |p| v[1].transform_point(p)),
             Point2::new(0.0, 1.0)
         );
 

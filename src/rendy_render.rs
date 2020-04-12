@@ -79,8 +79,8 @@ pub fn main() {
                         WindowEvent::CursorMoved { position, .. } => {
                             let size = window.inner_size();
                             cursor = Point2::new(
-                                (position.x as f64)/ (size.width as f64) * 2.0 - 1.0,
-                                (position.y as f64)/ (size.height as f64) * 2.0 - 1.0,
+                                f64::from(position.x) / f64::from(size.width) * 2.0 - 1.0,
+                                f64::from(position.y) / f64::from(size.height) * 2.0 - 1.0,
                             );
                         }
                         _ => {}
@@ -205,7 +205,7 @@ where
     }
 
     fn layout(&self) -> Layout {
-        return SHADER_REFLECTION.layout().unwrap();
+        SHADER_REFLECTION.layout().unwrap()
     }
 
     fn colors(&self) -> Vec<hal::pso::ColorBlendDesc> {
@@ -269,7 +269,7 @@ fn build_mesh<B: gfx_hal::Backend>(
     ];
 
     state.process_levels(BASE_LEVELS, &mut |state| {
-        for t in tri_verts.iter() {
+        for t in &tri_verts {
             let t2 = state.mat * t;
             verts.push([t2.x as f32, t2.y as f32].into());
         }
