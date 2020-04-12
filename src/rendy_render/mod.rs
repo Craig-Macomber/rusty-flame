@@ -71,6 +71,9 @@ pub fn main() {
             let mut frame = 0u64;
 
             event_loop.run(move |event, _, control_flow| {
+                if *control_flow == ControlFlow::Exit {
+                    return; // TODO: why is this needed?
+                }
                 *control_flow = ControlFlow::Poll;
                 match event {
                     Event::WindowEvent { event, .. } => match event {
