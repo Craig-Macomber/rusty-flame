@@ -12,8 +12,8 @@ use rendy::{
     memory::Dynamic,
     mesh::{AsVertex, TexCoord},
     resource::{
-        Buffer, BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Filter, Handle, ImageView,
-        ImageViewInfo, Sampler, SamplerDesc, ViewKind, WrapMode,
+        Buffer, BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Filter, Handle,
+        ImageViewInfo, SamplerDesc, ViewKind, WrapMode,
     },
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage, SpirvReflection, SpirvShader},
 };
@@ -50,8 +50,6 @@ pub struct PipelineDesc;
 pub struct Pipeline<B: hal::Backend> {
     buffer: Escape<Buffer<B>>,
     descriptors: Escape<DescriptorSet<B>>,
-    image_sampler: Escape<Sampler<B>>,
-    image_view: Escape<ImageView<B>>,
 }
 
 impl<B> SimpleGraphicsPipelineDesc<B, Point2<f64>> for PipelineDesc
@@ -197,8 +195,6 @@ where
         Ok(Pipeline {
             buffer: vertex_buffer,
             descriptors: descriptor_set,
-            image_view: view,
-            image_sampler,
         })
     }
 }

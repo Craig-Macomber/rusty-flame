@@ -22,9 +22,9 @@ fn main() {
     rendy_render::main()
 }
 
-pub const BASE_LEVELS: u32 = 8;
+pub const BASE_LEVELS: u32 = 5;
 
-pub const INSTANCE_LEVELS: u32 = 7;
+pub const INSTANCE_LEVELS: u32 = 5;
 
 pub const LEVELS: u32 = BASE_LEVELS + INSTANCE_LEVELS;
 

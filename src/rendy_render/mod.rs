@@ -86,6 +86,8 @@ pub fn main() {
 
 pub(crate) const ACCUMULATION_FORMAT: hal::format::Format = hal::format::Format::R32Sfloat;
 
+const USE_TEXTURED_MESH: bool = true;
+
 fn build_graph(
     factory: &mut Factory<Backend>,
     families: &mut Families<Backend>,
@@ -98,8 +100,14 @@ fn build_graph(
     let size = window.inner_size();
     let window_size = gfx_hal::image::Kind::D2(size.width as u32, size.height as u32, 1, 1);
 
+    let accumulation_size = if USE_TEXTURED_MESH {
+        gfx_hal::image::Kind::D2(256, 256, 1, 1)
+    } else {
+        window_size
+    };
+
     let accumulation_image = graph_builder.create_image(
-        window_size,
+        accumulation_size,
         1,
         ACCUMULATION_FORMAT,
         Some(hal::command::ClearValue {
@@ -115,6 +123,32 @@ fn build_graph(
             .with_color(accumulation_image)
             .into_pass(),
     );
+
+    let (accumulation_node, accumulation_image) = if USE_TEXTURED_MESH {
+        let accumulation_image2 = graph_builder.create_image(
+            window_size,
+            1,
+            ACCUMULATION_FORMAT,
+            Some(hal::command::ClearValue {
+                color: hal::command::ClearColor {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            }),
+        );
+
+        let accumulation_node2 = graph_builder.add_node(
+            mesh_pipeline::PipelineTextured::builder()
+                .with_image(accumulation_image)
+                .into_subpass()
+                .with_dependency(accumulation_node)
+                .with_color(accumulation_image2)
+                .into_pass(),
+        );
+
+        (accumulation_node2, accumulation_image2)
+    } else {
+        (accumulation_node, accumulation_image)
+    };
 
     let output_image = graph_builder.create_image(
         window_size,

@@ -22,7 +22,7 @@ Features I'd like to implement:
     [x] Using generated meshes
     [x] Using instanced rendering
 - [ ] Scale factor adjusted density for non-uniform scale factors
-- [ ] Recursive render to texture for improved quality and performance
+- [x] Recursive render to texture for improved quality and performance
     - [ ] Use mip-maps/summed area tables (maybe anisotropic) for efficient sampling for fractals with highly variable scale factors
 - [x] Logarithmic density visualization
     - [x] Output tone-mapping
