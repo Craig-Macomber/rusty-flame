@@ -2,7 +2,9 @@ use na::{Matrix3, Point2};
 
 use crate::{
     flame::{BoundedState, State},
-    geometry, get_state, BASE_LEVELS, INSTANCE_LEVELS,
+    geometry, get_state,
+    rendy_render::ACCUMULATION_FORMAT,
+    LEVELS,
 };
 use rendy::{
     command::{QueueId, RenderPassEncoder},
@@ -23,8 +25,6 @@ use rendy::{
     hal::device::Device,
     resource::{Filter, ImageViewInfo, SamplerDesc, ViewKind, WrapMode},
 };
-
-use crate::rendy_render::ACCUMULATION_FORMAT;
 
 lazy_static::lazy_static! {
     static ref VERTEX: SpirvShader = PathBufShaderInfo::new(
@@ -290,6 +290,19 @@ where
     }
 }
 
+struct LevelSplit {
+    mesh: u32,
+    instance: u32,
+}
+
+fn split_levels(total: u32) -> LevelSplit {
+    let instance = total / 2;
+    LevelSplit {
+        instance,
+        mesh: total - instance,
+    }
+}
+
 fn build_mesh<B: gfx_hal::Backend>(
     factory: &Factory<B>,
     aux: &Point2<f64>,
@@ -331,7 +344,9 @@ fn build_mesh<B: gfx_hal::Backend>(
     .map(|c| [c.x as f32, c.y as f32].into())
     .collect();
 
-    state.process_levels(BASE_LEVELS, &mut |state| {
+    let split = split_levels(LEVELS);
+
+    state.process_levels(split.mesh, &mut |state| {
         for t in &tri_verts {
             let t2 = state.mat * t;
             verts.push([t2.x as f32, t2.y as f32].into());
@@ -353,7 +368,7 @@ fn build_mesh<B: gfx_hal::Backend>(
         .unwrap();
 
     let mut instances: Vec<f32> = vec![];
-    state.process_levels(INSTANCE_LEVELS, &mut |state| {
+    state.process_levels(split.instance, &mut |state| {
         let m: Matrix3<f64> = (root_mat * state.mat).to_homogeneous();
         let s = m.as_slice();
         instances.extend(
