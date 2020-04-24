@@ -1,5 +1,3 @@
-use na::Point2;
-
 use rendy::{
     command::{QueueId, RenderPassEncoder},
     core::types::Layout,
@@ -18,6 +16,7 @@ use rendy::{
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage, SpirvReflection, SpirvShader},
 };
 
+use super::SceneState;
 use crate::geometry;
 use crate::rendy_render::ACCUMULATION_FORMAT;
 
@@ -52,7 +51,7 @@ pub struct Pipeline<B: hal::Backend> {
     descriptors: Escape<DescriptorSet<B>>,
 }
 
-impl<B> SimpleGraphicsPipelineDesc<B, Point2<f64>> for PipelineDesc
+impl<B> SimpleGraphicsPipelineDesc<B, SceneState> for PipelineDesc
 where
     B: gfx_hal::Backend,
 {
@@ -101,7 +100,7 @@ where
     fn load_shader_set(
         &self,
         factory: &mut Factory<B>,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
     ) -> rendy::shader::ShaderSet<B> {
         SHADERS.build(factory, Default::default()).unwrap()
     }
@@ -111,7 +110,7 @@ where
         ctx: &GraphContext<B>,
         factory: &mut Factory<B>,
         _queue: QueueId,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
         set_layouts: &[Handle<DescriptorSetLayout<B>>],
@@ -199,7 +198,7 @@ where
     }
 }
 
-impl<B> SimpleGraphicsPipeline<B, Point2<f64>> for Pipeline<B>
+impl<B> SimpleGraphicsPipeline<B, SceneState> for Pipeline<B>
 where
     B: gfx_hal::Backend,
 {
@@ -211,7 +210,7 @@ where
         _queue: QueueId,
         _set_layouts: &[Handle<DescriptorSetLayout<B>>],
         _index: usize,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
     ) -> PrepareResult {
         PrepareResult::DrawReuse
     }
@@ -221,7 +220,7 @@ where
         layout: &B::PipelineLayout,
         mut encoder: RenderPassEncoder<'_, B>,
         _index: usize,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
     ) {
         unsafe {
             encoder.bind_graphics_descriptor_sets(
@@ -236,5 +235,5 @@ where
         }
     }
 
-    fn dispose(self, _factory: &mut Factory<B>, _aux: &Point2<f64>) {}
+    fn dispose(self, _factory: &mut Factory<B>, _aux: &SceneState) {}
 }

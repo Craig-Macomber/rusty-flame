@@ -33,8 +33,8 @@ pub fn main() {
     let rendy = AnyWindowedRendy::init_auto(&config, window, &event_loop).unwrap();
     rendy::with_any_windowed_rendy!((rendy)
         (mut factory, mut families, surface, window) => {
-            let mut cursor = na::Point2::new(0.0, 0.0);
-            let mut graph = Some(build_graph(&mut factory, &mut families, surface, &window, cursor));
+            let mut scene = SceneState{cursor: na::Point2::new(0.0, 0.0)};
+            let mut graph = Some(build_graph(&mut factory, &mut families, surface, &window, &scene));
             let mut started = std::time::Instant::now();
             let mut frame = 0u64;
 
@@ -51,16 +51,16 @@ pub fn main() {
                         }
                         WindowEvent::CursorMoved { position, .. } => {
                             let size = window.inner_size();
-                            cursor = Point2::new(
+                            scene = SceneState{cursor: Point2::new(
                                 f64::from(position.x) / f64::from(size.width) * 2.0 - 1.0,
                                 f64::from(position.y) / f64::from(size.height) * 2.0 - 1.0,
-                            );
+                            )};
                         }
                         _ => {}
                     },
                     Event::MainEventsCleared => {
                         factory.maintain(&mut families);
-                        graph.as_mut().unwrap().run(&mut factory, &mut families, &cursor);
+                        graph.as_mut().unwrap().run(&mut factory, &mut families, &scene);
                         frame += 1;
                         if frame % 100 == 0 {
                             let elapsed = started.elapsed();
@@ -77,7 +77,7 @@ pub fn main() {
                 }
 
                 if *control_flow == ControlFlow::Exit {
-                    graph.take().unwrap().dispose(&mut factory, &cursor);
+                    graph.take().unwrap().dispose(&mut factory, &scene);
                 }
             });
         }
@@ -86,6 +86,10 @@ pub fn main() {
 
 pub(crate) const ACCUMULATION_FORMAT: hal::format::Format = hal::format::Format::R32Sfloat;
 
+pub(crate) struct SceneState {
+    cursor: Point2<f64>,
+}
+
 const USE_TEXTURED_MESH: bool = true;
 
 fn build_graph(
@@ -93,9 +97,9 @@ fn build_graph(
     families: &mut Families<Backend>,
     surface: rendy::wsi::Surface<Backend>,
     window: &Window,
-    cursor: Point2<f64>,
-) -> Graph<Backend, Point2<f64>> {
-    let mut graph_builder = GraphBuilder::<Backend, Point2<f64>>::new();
+    cursor: &SceneState,
+) -> Graph<Backend, SceneState> {
+    let mut graph_builder = GraphBuilder::<Backend, SceneState>::new();
 
     let size = window.inner_size();
     let window_size = gfx_hal::image::Kind::D2(size.width as u32, size.height as u32, 1, 1);

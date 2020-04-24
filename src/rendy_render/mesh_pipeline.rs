@@ -21,6 +21,7 @@ use rendy::{
     shader::{PathBufShaderInfo, ShaderKind, SourceLanguage, SpirvReflection, SpirvShader},
 };
 
+use super::SceneState;
 use rendy::{
     hal::device::Device,
     resource::{Filter, ImageViewInfo, SamplerDesc, ViewKind, WrapMode},
@@ -95,7 +96,7 @@ pub struct PipelineData<B: gfx_hal::Backend> {
     aux: Point2<f64>,
 }
 
-impl<B> SimpleGraphicsPipelineDesc<B, Point2<f64>> for PipelineDesc
+impl<B> SimpleGraphicsPipelineDesc<B, SceneState> for PipelineDesc
 where
     B: gfx_hal::Backend,
 {
@@ -141,7 +142,7 @@ where
     fn load_shader_set(
         &self,
         factory: &mut Factory<B>,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
     ) -> rendy::shader::ShaderSet<B> {
         SHADERS.build(factory, Default::default()).unwrap()
     }
@@ -151,7 +152,7 @@ where
         _ctx: &GraphContext<B>,
         _factory: &mut Factory<B>,
         _queue: QueueId,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
         set_layouts: &[Handle<DescriptorSetLayout<B>>],
@@ -163,7 +164,7 @@ where
     }
 }
 
-impl<B> SimpleGraphicsPipelineDesc<B, Point2<f64>> for PipelineDescTextured
+impl<B> SimpleGraphicsPipelineDesc<B, SceneState> for PipelineDescTextured
 where
     B: gfx_hal::Backend,
 {
@@ -222,7 +223,7 @@ where
     fn load_shader_set(
         &self,
         factory: &mut Factory<B>,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
     ) -> rendy::shader::ShaderSet<B> {
         SHADERS_TEXTURED.build(factory, Default::default()).unwrap()
     }
@@ -232,7 +233,7 @@ where
         ctx: &GraphContext<B>,
         factory: &mut Factory<B>,
         _queue: QueueId,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
         set_layouts: &[Handle<DescriptorSetLayout<B>>],
@@ -305,10 +306,10 @@ fn split_levels(total: u32) -> LevelSplit {
 
 fn build_mesh<B: gfx_hal::Backend>(
     factory: &Factory<B>,
-    aux: &Point2<f64>,
+    aux: &SceneState,
     textured: bool,
 ) -> PipelineData<B> {
-    let root = get_state([aux.x + 1.0, aux.y + 1.0], [2.0, 2.0]);
+    let root = get_state([aux.cursor.x + 1.0, aux.cursor.y + 1.0], [2.0, 2.0]);
     let state = root.get_state();
     let bounds = state.get_bounds();
     let root_mat = geometry::letter_box(
@@ -432,11 +433,11 @@ fn build_mesh<B: gfx_hal::Backend>(
         instance_buffer,
         instance_count,
         uv_buffer,
-        aux: aux.clone(),
+        aux: aux.cursor.clone(),
     }
 }
 
-impl<B> SimpleGraphicsPipeline<B, Point2<f64>> for Pipeline<B>
+impl<B> SimpleGraphicsPipeline<B, SceneState> for Pipeline<B>
 where
     B: gfx_hal::Backend,
 {
@@ -448,12 +449,12 @@ where
         _queue: QueueId,
         _set_layouts: &[Handle<DescriptorSetLayout<B>>],
         _index: usize,
-        aux: &Point2<f64>,
+        aux: &SceneState,
     ) -> PrepareResult {
         match self.data.as_ref() {
             None => {}
             Some(data) => {
-                if data.aux == *aux {
+                if data.aux == aux.cursor {
                     // TODO: why doesn't DrawReuse work here? Maybe related to index?
                     return PrepareResult::DrawRecord;
                 }
@@ -468,7 +469,7 @@ where
         _layout: &B::PipelineLayout,
         mut encoder: RenderPassEncoder<'_, B>,
         _index: usize,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
     ) {
         let data = self.data.as_mut().unwrap();
         unsafe {
@@ -483,10 +484,10 @@ where
         }
     }
 
-    fn dispose(self, _factory: &mut Factory<B>, _aux: &Point2<f64>) {}
+    fn dispose(self, _factory: &mut Factory<B>, _aux: &SceneState) {}
 }
 
-impl<B> SimpleGraphicsPipeline<B, Point2<f64>> for PipelineTextured<B>
+impl<B> SimpleGraphicsPipeline<B, SceneState> for PipelineTextured<B>
 where
     B: gfx_hal::Backend,
 {
@@ -498,12 +499,12 @@ where
         _queue: QueueId,
         _set_layouts: &[Handle<DescriptorSetLayout<B>>],
         _index: usize,
-        aux: &Point2<f64>,
+        aux: &SceneState,
     ) -> PrepareResult {
         match self.data.as_ref() {
             None => {}
             Some(data) => {
-                if data.aux == *aux {
+                if data.aux == aux.cursor {
                     // TODO: why doesn't DrawReuse work here? Maybe related to index?
                     return PrepareResult::DrawRecord;
                 }
@@ -518,7 +519,7 @@ where
         layout: &B::PipelineLayout,
         mut encoder: RenderPassEncoder<'_, B>,
         _index: usize,
-        _aux: &Point2<f64>,
+        _aux: &SceneState,
     ) {
         let data = self.data.as_mut().unwrap();
         unsafe {
@@ -540,5 +541,5 @@ where
         }
     }
 
-    fn dispose(self, _factory: &mut Factory<B>, _aux: &Point2<f64>) {}
+    fn dispose(self, _factory: &mut Factory<B>, _aux: &SceneState) {}
 }
