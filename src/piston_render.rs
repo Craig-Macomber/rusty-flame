@@ -11,6 +11,7 @@ use piston_window::{image, math, PistonWindow, Size, TextureSettings, Transforme
 use vecmath;
 
 pub fn main() {
+    simple_logger::SimpleLogger::new().init().unwrap();
     let window_size = Size {
         width: 1000.0,
         height: 800.0,

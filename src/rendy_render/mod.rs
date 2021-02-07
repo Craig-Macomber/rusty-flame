@@ -24,6 +24,7 @@ use rendy::{
 type Backend = rendy::vulkan::Backend;
 
 pub fn main() {
+    simple_logger::SimpleLogger::new().init().unwrap();
     let config: Config = Default::default();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()

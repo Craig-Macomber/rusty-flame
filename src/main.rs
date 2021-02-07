@@ -19,7 +19,6 @@ pub mod rendy_render;
 pub mod wgpu_render;
 
 fn main() {
-    simple_logger::SimpleLogger::new().init().unwrap();
     wgpu_render::main()
 }
 
