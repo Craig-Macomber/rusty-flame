@@ -27,6 +27,9 @@ palette = "0.5.0"
 rendy-core = "0.5.1"
 rendy-shader = "0.5.1"
 gfx-backend-vulkan = "0.4.3"
+wgpu = "0.5"
+winit = { version = "0.22.1", features = ["web-sys"] }
+futures = "0.3"
 
 [dependencies.rendy]
 version = "0.5.1"

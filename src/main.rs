@@ -16,10 +16,11 @@ mod flame;
 pub mod geometry;
 pub mod piston_render;
 pub mod rendy_render;
+pub mod wgpu_render;
 
 fn main() {
     simple_logger::init().unwrap();
-    rendy_render::main()
+    wgpu_render::main()
 }
 
 pub const LEVELS: u32 = 10;
