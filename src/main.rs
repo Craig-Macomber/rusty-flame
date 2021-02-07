@@ -18,7 +18,7 @@ pub mod piston_render;
 pub mod rendy_render;
 
 fn main() {
-    simple_logger::init().unwrap();
+    simple_logger::SimpleLogger::new().init().unwrap();
     rendy_render::main()
 }
 
