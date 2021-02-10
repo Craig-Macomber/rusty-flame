@@ -152,6 +152,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                         f64::from(position.y) / f64::from(size.height) * 2.0 - 1.0,
                     ),
                 };
+                window.request_redraw();
             }
 
             Event::RedrawRequested(_) => {
@@ -215,6 +216,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     frame_count = 0;
                 }
             }
+            // Event::MainEventsCleared => {
+            //     window.request_redraw(); // Enable to busy loop
+            // }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..

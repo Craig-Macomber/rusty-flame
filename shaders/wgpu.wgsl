@@ -22,10 +22,12 @@ fn vs_main() {
     // out_position = vec4<f32>((vec3<f32>(in_pos_vs, 1.0) * instance_matrix), 0.0, 1.0);
 
     out_tex_coord = in_tex_coord_vs;
-    var pos2: vec2<f32> = vec2<f32>(
+    out_position = vec4<f32>(
         instance_matrix_row_0.x * in_pos_vs.x + instance_matrix_row_0.y * in_pos_vs.y + instance_matrix_row_0.z,
-        instance_matrix_row_1.x * in_pos_vs.x + instance_matrix_row_1.y * in_pos_vs.y + instance_matrix_row_1.z);
-    out_position = vec4<f32>((pos2), 0.0, 1.0);
+        instance_matrix_row_1.x * in_pos_vs.x + instance_matrix_row_1.y * in_pos_vs.y + instance_matrix_row_1.z,
+        0.0,
+        1.0
+    );
 }
 
 [[location(0)]]
