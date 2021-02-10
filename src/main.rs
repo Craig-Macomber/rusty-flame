@@ -48,3 +48,16 @@ pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root<Affine2<f64>> {
 
     Root { storage: va }
 }
+
+pub struct LevelSplit {
+    mesh: u32,
+    instance: u32,
+}
+
+pub fn split_levels() -> LevelSplit {
+    let instance = LEVELS / 2;
+    LevelSplit {
+        instance,
+        mesh: LEVELS - instance,
+    }
+}

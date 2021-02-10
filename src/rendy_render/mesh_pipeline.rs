@@ -4,7 +4,7 @@ use crate::{
     flame::{BoundedState, State},
     geometry, get_state,
     rendy_render::ACCUMULATION_FORMAT,
-    LEVELS,
+    split_levels,
 };
 use rendy::{
     command::{QueueId, RenderPassEncoder},
@@ -291,19 +291,6 @@ where
     }
 }
 
-struct LevelSplit {
-    mesh: u32,
-    instance: u32,
-}
-
-fn split_levels(total: u32) -> LevelSplit {
-    let instance = total / 2;
-    LevelSplit {
-        instance,
-        mesh: total - instance,
-    }
-}
-
 fn build_mesh<B: gfx_hal::Backend>(
     factory: &Factory<B>,
     aux: &SceneState,
@@ -345,7 +332,7 @@ fn build_mesh<B: gfx_hal::Backend>(
     .map(|c| [c.x as f32, c.y as f32].into())
     .collect();
 
-    let split = split_levels(LEVELS);
+    let split = split_levels();
 
     state.process_levels(split.mesh, &mut |state| {
         for t in &tri_verts {

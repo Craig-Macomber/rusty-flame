@@ -32,6 +32,7 @@ futures = "0.3.12"
 gfx-backend-vulkan = "0.7.0"
 wgpu-subscriber = "0.1.0"
 pollster = "0.2.1"
+bytemuck = { version = "1.5.0", features = ["derive"] }
 
 [dependencies.rendy]
 version = "0.5.1"
