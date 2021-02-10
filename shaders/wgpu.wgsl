@@ -43,5 +43,5 @@ var<out> out_color: vec4<f32>;
 fn fs_main() {
     // var tex: vec4<f32> = textureSample(r_color, r_sampler, in_tex_coord_fs);
     // out_color = tex;
-    out_color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    out_color = vec4<f32>(0.01, 0.0, 0.0, 1.0);
 }
