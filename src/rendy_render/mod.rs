@@ -21,6 +21,8 @@ use rendy::{
     init::AnyWindowedRendy,
 };
 
+use crate::SMALL_ACCUMULATION_BUFFER_SIZE;
+
 type Backend = rendy::vulkan::Backend;
 
 pub fn main() {
@@ -106,7 +108,12 @@ fn build_graph(
     let window_size = gfx_hal::image::Kind::D2(size.width as u32, size.height as u32, 1, 1);
 
     let accumulation_size = if USE_TEXTURED_MESH {
-        gfx_hal::image::Kind::D2(256, 256, 1, 1)
+        gfx_hal::image::Kind::D2(
+            SMALL_ACCUMULATION_BUFFER_SIZE,
+            SMALL_ACCUMULATION_BUFFER_SIZE,
+            1,
+            1,
+        )
     } else {
         window_size
     };

@@ -45,3 +45,21 @@ fn fs_main() {
     // out_color = tex;
     out_color = vec4<f32>(0.01, 0.0, 0.0, 1.0);
 }
+
+
+
+[[location(0)]]
+var<in> in_tex_coord_fs: vec2<f32>;
+[[location(0)]]
+var<out> out_color: vec4<f32>;
+[[group(0), binding(0)]]
+var r_color: texture_2d<f32>;
+[[group(0), binding(1)]]
+var r_sampler: sampler;
+
+[[stage(fragment)]]
+fn fs_main_textured() {
+    var tex: vec4<f32> = textureSample(r_color, r_sampler, in_tex_coord_fs);
+    out_color = tex;
+    // out_color = vec4<f32>(0.01, 0.0, 0.0, 1.0);
+}

@@ -1,5 +1,3 @@
-// https://github.com/gfx-rs/wgpu-rs/tree/master/examples/hello-triangle
-
 use nalgebra::{Matrix3, Point2};
 use winit::{
     dpi::Size,
@@ -10,11 +8,11 @@ use winit::{
 
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, Device, Extent3d, RenderPass, TextureFormat};
 
 use crate::{
     flame::{BoundedState, State},
-    geometry, get_state, split_levels,
+    geometry, get_state, split_levels, SMALL_ACCUMULATION_BUFFER_SIZE,
 };
 
 #[repr(C)]
@@ -71,12 +69,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     // Load the shaders from disk
     let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-        label: None,
+        label: Some("wgpu.wgsl"),
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
-        flags: wgpu::ShaderFlags::all(), //wgpu::ShaderFlags::EXPERIMENTAL_TRANSLATION
+        flags: wgpu::ShaderFlags::all(),
     });
 
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    let small_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
         bind_group_layouts: &[],
         push_constant_ranges: &[],
@@ -84,40 +82,130 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let swapchain_format = adapter.get_swap_chain_preferred_format(&surface);
 
-    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: None,
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: "vs_main",
-            buffers: &[
-                wgpu::VertexBufferLayout {
-                    array_stride: 2 * 4 * 4,
-                    step_mode: wgpu::InputStepMode::Instance,
-                    attributes: &wgpu::vertex_attr_array![0 => Float4, 1 => Float4], // Rows of matrix
-                },
-                wgpu::VertexBufferLayout {
-                    array_stride: 2 * 2 * 4,
-                    step_mode: wgpu::InputStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![2 => Float2, 3 => Float2],
-                },
-            ],
+    let vertex_shader = wgpu::VertexState {
+        module: &shader,
+        entry_point: "vs_main",
+        buffers: &[
+            wgpu::VertexBufferLayout {
+                array_stride: 2 * 4 * 4,
+                step_mode: wgpu::InputStepMode::Instance,
+                attributes: &wgpu::vertex_attr_array![0 => Float4, 1 => Float4], // Rows of matrix
+            },
+            wgpu::VertexBufferLayout {
+                array_stride: 2 * 2 * 4,
+                step_mode: wgpu::InputStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![2 => Float2, 3 => Float2],
+            },
+        ],
+    };
+
+    let blend_add = wgpu::BlendState {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    };
+
+    // Small Accumulation buffer
+    // TODO: mipmap filtering and generation
+    let small_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("small smapler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+
+    let small_texture = device.create_texture(&wgpu::TextureDescriptor {
+        size: Extent3d {
+            width: SMALL_ACCUMULATION_BUFFER_SIZE,
+            height: SMALL_ACCUMULATION_BUFFER_SIZE,
+            depth: 1,
         },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::R32Float,
+        usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+        label: Some("small texture"),
+    });
+    let small_view = small_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let small_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("small"),
+        layout: Some(&small_pipeline_layout),
+        vertex: vertex_shader.clone(),
         fragment: Some(wgpu::FragmentState {
             module: &shader,
             entry_point: "fs_main",
             targets: &[wgpu::ColorTargetState {
+                format: TextureFormat::R32Float,
+                color_blend: blend_add.clone(),
+                alpha_blend: blend_add.clone(),
+                write_mask: wgpu::ColorWrite::ALL,
+            }],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+    });
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStage::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStage::FRAGMENT,
+                ty: wgpu::BindingType::Sampler {
+                    comparison: false,
+                    filtering: true,
+                },
+                count: None,
+            },
+        ],
+        label: None,
+    });
+
+    // Create bind group
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&small_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&small_sampler),
+            },
+        ],
+        label: None,
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: None,
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("main accumulate"),
+        layout: Some(&pipeline_layout),
+        vertex: vertex_shader.clone(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main_textured",
+            targets: &[wgpu::ColorTargetState {
                 format: swapchain_format,
-                color_blend: wgpu::BlendState {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add,
-                },
-                alpha_blend: wgpu::BlendState {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add,
-                },
+                color_blend: blend_add.clone(),
+                alpha_blend: blend_add.clone(),
                 write_mask: wgpu::ColorWrite::ALL,
             }],
         }),
@@ -174,48 +262,75 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     .expect("Failed to acquire next swap chain texture")
                     .output;
 
-                let (vertex_data, instance_data) = build_mesh(&scene);
-
-                let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&vertex_data),
-                    usage: wgpu::BufferUsage::VERTEX,
-                });
-
-                let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Instance Buffer"),
-                    contents: bytemuck::cast_slice(&instance_data),
-                    usage: wgpu::BufferUsage::VERTEX,
-                });
-
-                let mut encoder =
-                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                 {
-                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                            attachment: &frame.view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                store: true,
-                            },
-                        }],
-                        depth_stencil_attachment: None,
+                    // Draw main pass
+                    let (vertex_data, instance_data) = build_mesh(&scene);
+
+                    let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Vertex Buffer"),
+                        contents: bytemuck::cast_slice(&vertex_data),
+                        usage: wgpu::BufferUsage::VERTEX,
                     });
-                    rpass.set_pipeline(&render_pipeline);
 
-                    rpass.set_vertex_buffer(0, instance_buf.slice(..));
-                    rpass.set_vertex_buffer(1, vertex_buf.slice(..));
+                    let instance_buf =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Instance Buffer"),
+                            contents: bytemuck::cast_slice(&instance_data),
+                            usage: wgpu::BufferUsage::VERTEX,
+                        });
 
-                    // TODO: Generate more triangles, and use more instances.
-                    rpass.draw(
-                        0..(vertex_data.len() as u32),
-                        0..(instance_data.len() as u32),
-                    );
+                    let mut encoder = device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                    {
+                        {
+                            let mut small_pass =
+                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: None,
+                                    color_attachments: &[
+                                        wgpu::RenderPassColorAttachmentDescriptor {
+                                            attachment: &small_view,
+                                            resolve_target: None,
+                                            ops: wgpu::Operations {
+                                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                                store: true,
+                                            },
+                                        },
+                                    ],
+                                    depth_stencil_attachment: None,
+                                });
+                            small_pass.set_pipeline(&small_pipeline);
+                            small_pass.set_vertex_buffer(0, instance_buf.slice(..));
+                            small_pass.set_vertex_buffer(1, vertex_buf.slice(..));
+                            small_pass.draw(
+                                0..(vertex_data.len() as u32),
+                                0..(instance_data.len() as u32),
+                            );
+                        }
+
+                        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: None,
+                            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                                attachment: &frame.view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                    store: true,
+                                },
+                            }],
+                            depth_stencil_attachment: None,
+                        });
+                        rpass.set_pipeline(&render_pipeline);
+                        rpass.set_bind_group(0, &bind_group, &[]);
+                        rpass.set_vertex_buffer(0, instance_buf.slice(..));
+                        rpass.set_vertex_buffer(1, vertex_buf.slice(..));
+                        rpass.draw(
+                            0..(vertex_data.len() as u32),
+                            0..(instance_data.len() as u32),
+                        );
+                    }
+
+                    queue.submit(Some(encoder.finish()));
                 }
-
-                queue.submit(Some(encoder.finish()));
 
                 frame_count += 1;
                 if frame_count % 100 == 0 {

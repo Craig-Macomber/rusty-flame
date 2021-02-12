@@ -23,6 +23,7 @@ fn main() {
 }
 
 pub const LEVELS: u32 = 10;
+pub const SMALL_ACCUMULATION_BUFFER_SIZE: u32 = 256;
 
 pub fn process_scene<F: FnMut(&AffineState)>(state: AffineState, callback: &mut F) {
     state.process_levels(LEVELS, callback);
