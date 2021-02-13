@@ -34,6 +34,9 @@ wgpu-subscriber = "0.1.0"
 pollster = "0.2.1"
 bytemuck = { version = "1.5.0", features = ["derive"] }
 
+[patch.crates-io]
+naga = { git = "https://github.com/gfx-rs/naga" }
+
 [dependencies.rendy]
 version = "0.5.1"
 features = ["texture-image", "shader-compiler", "vulkan", "init-winit" ] # "no-slow-safety-checks"

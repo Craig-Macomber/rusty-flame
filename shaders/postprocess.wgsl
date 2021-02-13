@@ -30,12 +30,12 @@ fn fs_main() {
     // TODO: non-filtered interger sampler?
     var tex: vec4<f32> = textureSample(r_color, r_sampler, in_tex_coord_fs);
     var v: f32 = tex.x;
-    var l: f32 = v / 3.0;
-    // if ( l > 3) {
-    //     l = l - 3;
-    //     out_color = vec4<f32>(1 - l, 2 - l, 3 - l, 1.0);
-    // } else {
-        out_color = vec4<f32>(l, l - 1, l - 2, 1.0);
-    // }
-}
+    var l: f32 = log2(v) / 3.0;
 
+    if ( l > 3.0) {
+        l = l - 3.0;
+        out_color = vec4<f32>(1.0 - l, 2.0 - l, 3.0 - l, 1.0);
+    } else {
+        out_color = vec4<f32>(l, l - 1.0, l - 2.0, 1.0);
+    }
+}

@@ -1796,8 +1796,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8f30d7036f137a2f64fd7d53b70a91545d3f09e030b77b3816ff7bd4cf3f789"
+source = "git+https://github.com/gfx-rs/naga#9667a18980bac331b1d43d4219f8e3de28202576"
 dependencies = [
  "bit-set",
  "bitflags",
