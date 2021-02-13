@@ -8,7 +8,7 @@ use winit::{
 
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
-use wgpu::{util::DeviceExt, Device, Extent3d, RenderPass, TextureFormat};
+use wgpu::{util::DeviceExt, Extent3d, TextureFormat};
 
 use crate::{
     flame::{BoundedState, State},
@@ -18,11 +18,13 @@ use crate::{
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Vertex {
-    _pos: [f32; 2],
-    _tex_coord: [f32; 2],
+    position: Position,
+    texture_coordinate: TextureCoordinate,
 }
 
-type TexCoord = [f32; 2];
+type TextureCoordinate = [f32; 2];
+
+type Position = [f32; 2];
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -108,7 +110,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     // Small Accumulation buffer
     // TODO: mipmap filtering and generation
     let small_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("small smapler"),
+        label: Some("small sampler"),
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
@@ -307,7 +309,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                             );
                         }
 
-                        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        let mut big_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: None,
                             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                                 attachment: &frame.view,
@@ -319,11 +321,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                             }],
                             depth_stencil_attachment: None,
                         });
-                        rpass.set_pipeline(&render_pipeline);
-                        rpass.set_bind_group(0, &bind_group, &[]);
-                        rpass.set_vertex_buffer(0, instance_buf.slice(..));
-                        rpass.set_vertex_buffer(1, vertex_buf.slice(..));
-                        rpass.draw(
+                        big_pass.set_pipeline(&render_pipeline);
+                        big_pass.set_bind_group(0, &bind_group, &[]);
+                        big_pass.set_vertex_buffer(0, instance_buf.slice(..));
+                        big_pass.set_vertex_buffer(1, vertex_buf.slice(..));
+                        big_pass.draw(
                             0..(vertex_data.len() as u32),
                             0..(instance_data.len() as u32),
                         );
@@ -403,7 +405,7 @@ fn build_mesh(scene: &SceneState) -> (Vec<Vertex>, Vec<Instance>) {
     );
 
     let corners = bounds.corners();
-    let mut verts: Vec<TexCoord> = vec![];
+    let mut positions: Vec<Position> = vec![];
     let tri_verts = [
         corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
     ];
@@ -414,8 +416,8 @@ fn build_mesh(scene: &SceneState) -> (Vec<Vertex>, Vec<Instance>) {
     }
     .corners();
 
-    let mut uv_verts: Vec<TexCoord> = vec![];
-    let uv_tri_verts: Vec<TexCoord> = [
+    let mut uv_verts: Vec<TextureCoordinate> = vec![];
+    let uv_tri_verts: Vec<TextureCoordinate> = [
         uv_corners[0],
         uv_corners[1],
         uv_corners[2],
@@ -432,17 +434,17 @@ fn build_mesh(scene: &SceneState) -> (Vec<Vertex>, Vec<Instance>) {
     state.process_levels(split.mesh, &mut |state| {
         for t in &tri_verts {
             let t2 = state.mat * t;
-            verts.push([t2.x as f32, t2.y as f32].into());
+            positions.push([t2.x as f32, t2.y as f32].into());
         }
         uv_verts.extend(uv_tri_verts.iter());
     });
 
-    let verts = verts
+    let verts = positions
         .into_iter()
         .zip(uv_verts.into_iter())
         .map(|(v, u)| Vertex {
-            _pos: v,
-            _tex_coord: u,
+            position: v,
+            texture_coordinate: u,
         })
         .collect();
 

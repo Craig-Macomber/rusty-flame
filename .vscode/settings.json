@@ -1,8 +1,23 @@
 {
     "cSpell.words": [
         "Rgba",
+        "Zeroable",
+        "bindgen",
+        "bytemuck",
         "glutin",
+        "mipmap",
+        "multisample",
+        "multisampled",
         "nalgebra",
-        "opengl"
+        "opengl",
+        "rendy",
+        "repr",
+        "srgb",
+        "swapchain",
+        "vulkan",
+        "wasm",
+        "wgpu",
+        "wgsl",
+        "winit"
     ]
 }

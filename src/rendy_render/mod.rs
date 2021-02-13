@@ -11,7 +11,7 @@ use rendy::{
         render::{RenderGroupBuilder, SimpleGraphicsPipeline},
         Graph, GraphBuilder,
     },
-    hal::{self},
+    hal,
     init::winit::{
         dpi::Size,
         event::{Event, WindowEvent},
