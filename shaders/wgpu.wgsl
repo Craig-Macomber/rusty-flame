@@ -1,5 +1,3 @@
-// https://github.com/gfx-rs/wgpu-rs/blob/master/examples/hello-triangle/shader.wgsl
-// https://github.com/gfx-rs/wgpu-rs/blob/master/examples/boids/draw.wgsl
 
 [[location(0)]]
 var<in> instance_matrix_row_0: vec4<f32>;
@@ -34,16 +32,10 @@ fn vs_main() {
 var<in> in_tex_coord_fs: vec2<f32>;
 [[location(0)]]
 var<out> out_color: vec4<f32>;
-// [[group(0), binding(1)]]
-// var r_color: texture_2d<f32>;
-// [[group(0), binding(2)]]
-// var r_sampler: sampler;
 
 [[stage(fragment)]]
 fn fs_main() {
-    // var tex: vec4<f32> = textureSample(r_color, r_sampler, in_tex_coord_fs);
-    // out_color = tex;
-    out_color = vec4<f32>(0.01, 0.0, 0.0, 1.0);
+    out_color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
 }
 
 
@@ -61,5 +53,4 @@ var r_sampler: sampler;
 fn fs_main_textured() {
     var tex: vec4<f32> = textureSample(r_color, r_sampler, in_tex_coord_fs);
     out_color = tex;
-    // out_color = vec4<f32>(0.01, 0.0, 0.0, 1.0);
 }

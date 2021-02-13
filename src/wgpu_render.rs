@@ -82,6 +82,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         flags: wgpu::ShaderFlags::all(),
     });
 
+    let postprocess_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        label: Some("postprocess.wgsl"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+            "../shaders/postprocess.wgsl"
+        ))),
+        flags: wgpu::ShaderFlags::all(),
+    });
+
     let swapchain_format = adapter.get_swap_chain_preferred_format(&surface);
 
     let vertex_shader = wgpu::VertexState {
@@ -104,6 +112,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let blend_add = wgpu::BlendState {
         src_factor: wgpu::BlendFactor::One,
         dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    };
+
+    let blend_replace = wgpu::BlendState {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::Zero,
         operation: wgpu::BlendOperation::Add,
     };
 
@@ -168,7 +182,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
             let groups = &[&accumulation_bind_group_layout];
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
+                label: Some("accumulation pipeline"),
                 bind_group_layouts: match bind_group {
                     Some(_) => groups,
                     None => &[],
@@ -233,7 +247,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let large_bind_group = make_bind_group(&large_pass);
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: None,
+        label: Some("postprocess pipeline"),
         bind_group_layouts: &[&accumulation_bind_group_layout],
         push_constant_ranges: &[],
     });
@@ -241,14 +255,22 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let postprocess_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("postprocess"),
         layout: Some(&pipeline_layout),
-        vertex: vertex_shader.clone(),
+        vertex: wgpu::VertexState {
+            module: &postprocess_shader,
+            entry_point: "vs_main",
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: 2 * 2 * 4,
+                step_mode: wgpu::InputStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float2, 1 => Float2],
+            }],
+        },
         fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: "fs_main_textured",
+            module: &postprocess_shader,
+            entry_point: "fs_main",
             targets: &[wgpu::ColorTargetState {
                 format: swapchain_format,
-                color_blend: blend_add.clone(),
-                alpha_blend: blend_add.clone(),
+                color_blend: blend_replace.clone(),
+                alpha_blend: blend_replace.clone(),
                 write_mask: wgpu::ColorWrite::ALL,
             }],
         }),
@@ -271,7 +293,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
-        let _ = (&instance, &adapter, &shader, &small_pass, &large_pass);
+        let _ = (
+            &instance,
+            &adapter,
+            &shader,
+            &small_pass,
+            &large_pass,
+            &postprocess_shader,
+        );
 
         *control_flow = ControlFlow::Poll;
         match event {
@@ -308,10 +337,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 {
                     // Draw main pass
                     let (vertex_data, instance_data) = build_mesh(&scene);
+                    let quad_vertexes = build_quad();
 
                     let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Vertex Buffer"),
                         contents: bytemuck::cast_slice(&vertex_data),
+                        usage: wgpu::BufferUsage::VERTEX,
+                    });
+
+                    let quad_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Quad Vertex Buffer"),
+                        contents: bytemuck::cast_slice(&quad_vertexes),
                         usage: wgpu::BufferUsage::VERTEX,
                     });
 
@@ -345,7 +381,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
                         let mut postprocess_pass =
                             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: None,
+                                label: Some("Postprocess render pass"),
                                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                                     attachment: &frame.view,
                                     resolve_target: None,
@@ -358,12 +394,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                             });
                         postprocess_pass.set_pipeline(&postprocess_pipeline);
                         postprocess_pass.set_bind_group(0, &large_bind_group, &[]);
-                        postprocess_pass.set_vertex_buffer(0, instance_buf.slice(..));
-                        postprocess_pass.set_vertex_buffer(1, vertex_buf.slice(..));
-                        postprocess_pass.draw(
-                            0..(vertex_data.len() as u32),
-                            0..(instance_data.len() as u32),
-                        );
+                        postprocess_pass.set_vertex_buffer(0, quad_buf.slice(..));
+                        postprocess_pass.draw(0..(quad_vertexes.len() as u32), 0..1);
                     }
 
                     queue.submit(Some(encoder.finish()));
@@ -398,7 +430,7 @@ fn apply_pass<'b>(
     pass: &'b AccumulatePass,
 ) -> wgpu::RenderPass<'b> {
     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: None,
+        label: Some("Accumulate"),
         color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
             attachment: &pass.view,
             resolve_target: None,
@@ -518,4 +550,29 @@ fn build_mesh(scene: &SceneState) -> (Vec<Vertex>, Vec<Instance>) {
     });
 
     return (verts, instances);
+}
+
+fn build_quad() -> Vec<Vertex> {
+    let corners = geometry::Rect {
+        min: na::Point2::new(-1.0, -1.0),
+        max: na::Point2::new(1.0, 1.0),
+    }
+    .corners();
+
+    let uv_corners = geometry::Rect {
+        min: na::Point2::new(0.0, 0.0),
+        max: na::Point2::new(1.0, 1.0),
+    }
+    .corners();
+
+    [0, 1, 2, 0, 2, 3]
+        .iter()
+        .map(|index| -> Vertex {
+            Vertex {
+                position: [corners[*index].x as f32, corners[*index].y as f32].into(),
+                texture_coordinate: [uv_corners[*index].x as f32, uv_corners[*index].y as f32]
+                    .into(),
+            }
+        })
+        .collect()
 }

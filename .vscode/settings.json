@@ -10,6 +10,7 @@
         "multisampled",
         "nalgebra",
         "opengl",
+        "postprocess",
         "rendy",
         "repr",
         "srgb",
