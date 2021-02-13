@@ -10,7 +10,7 @@ mod flame;
 pub mod geometry;
 pub mod wgpu_render;
 
-fn main() {
+pub fn main() {
     wgpu_render::main()
 }
 
