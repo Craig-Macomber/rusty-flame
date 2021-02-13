@@ -1,12 +1,6 @@
-extern crate alga;
-extern crate glutin_window;
-extern crate graphics;
-extern crate image as im;
+#![warn(unused_extern_crates)]
+
 extern crate nalgebra as na;
-extern crate opengl_graphics;
-extern crate piston;
-extern crate simple_logger;
-extern crate vecmath;
 
 use crate::flame::{AffineState, Root, State};
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
@@ -14,8 +8,6 @@ use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 mod fixed_point;
 mod flame;
 pub mod geometry;
-pub mod piston_render;
-pub mod rendy_render;
 pub mod wgpu_render;
 
 fn main() {
