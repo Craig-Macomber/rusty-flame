@@ -8,7 +8,7 @@ use winit::{
 
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
-use wgpu::{util::DeviceExt, Extent3d, TextureFormat};
+use wgpu::{util::DeviceExt, BindGroup, Extent3d, TextureFormat};
 
 use crate::{
     flame::{BoundedState, State},
@@ -35,6 +35,12 @@ struct Instance {
 
 pub(crate) struct SceneState {
     cursor: Point2<f64>,
+}
+
+struct AccumulatePass {
+    pipeline: wgpu::RenderPipeline,
+    bind_group: Option<wgpu::BindGroup>,
+    view: wgpu::TextureView,
 }
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
@@ -76,12 +82,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         flags: wgpu::ShaderFlags::all(),
     });
 
-    let small_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: None,
-        bind_group_layouts: &[],
-        push_constant_ranges: &[],
-    });
-
     let swapchain_format = adapter.get_swap_chain_preferred_format(&surface);
 
     let vertex_shader = wgpu::VertexState {
@@ -107,98 +107,139 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         operation: wgpu::BlendOperation::Add,
     };
 
-    // Small Accumulation buffer
     // TODO: mipmap filtering and generation
-    let small_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("small sampler"),
+    let accumulation_sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("accumulation sampler"),
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
 
-    let small_texture = device.create_texture(&wgpu::TextureDescriptor {
-        size: Extent3d {
-            width: SMALL_ACCUMULATION_BUFFER_SIZE,
-            height: SMALL_ACCUMULATION_BUFFER_SIZE,
-            depth: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: TextureFormat::R32Float,
-        usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
-        label: Some("small texture"),
-    });
-    let small_view = small_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let accumulation_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
+                    count: None,
+                },
+            ],
+            label: None,
+        });
 
-    let small_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("small"),
-        layout: Some(&small_pipeline_layout),
-        vertex: vertex_shader.clone(),
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: "fs_main",
-            targets: &[wgpu::ColorTargetState {
+    let make_bind_group = |p: &AccumulatePass| -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &accumulation_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&p.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&accumulation_sampler),
+                },
+            ],
+            label: None,
+        })
+    };
+
+    let make_accumulation_pass =
+        |width, height, name, previous: Option<&AccumulatePass>| -> AccumulatePass {
+            // Create bind group
+            let bind_group = match previous {
+                Some(p) => Some(make_bind_group(p)),
+                None => None,
+            };
+
+            let groups = &[&accumulation_bind_group_layout];
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: match bind_group {
+                    Some(_) => groups,
+                    None => &[],
+                },
+                push_constant_ranges: &[],
+            });
+
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(name),
+                layout: Some(&pipeline_layout),
+                vertex: vertex_shader.clone(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: match previous {
+                        Some(_) => "fs_main_textured",
+                        None => "fs_main",
+                    },
+                    targets: &[wgpu::ColorTargetState {
+                        format: TextureFormat::R32Float,
+                        color_blend: blend_add.clone(),
+                        alpha_blend: blend_add.clone(),
+                        write_mask: wgpu::ColorWrite::ALL,
+                    }],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+            });
+
+            let texture: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
+                size: Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
                 format: TextureFormat::R32Float,
-                color_blend: blend_add.clone(),
-                alpha_blend: blend_add.clone(),
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-    });
+                usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+                label: Some(name),
+            });
 
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::Sampler {
-                    comparison: false,
-                    filtering: true,
-                },
-                count: None,
-            },
-        ],
-        label: None,
-    });
+            let view: wgpu::TextureView =
+                texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    // Create bind group
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&small_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&small_sampler),
-            },
-        ],
-        label: None,
-    });
+            AccumulatePass {
+                pipeline,
+                bind_group,
+                view,
+            }
+        };
+
+    let small_pass = make_accumulation_pass(
+        SMALL_ACCUMULATION_BUFFER_SIZE,
+        SMALL_ACCUMULATION_BUFFER_SIZE,
+        "small",
+        None,
+    );
+    let large_pass = make_accumulation_pass(size.width, size.height, "large", Some(&small_pass));
+
+    let large_bind_group = make_bind_group(&large_pass);
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[&bind_group_layout],
+        bind_group_layouts: &[&accumulation_bind_group_layout],
         push_constant_ranges: &[],
     });
 
-    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("main accumulate"),
+    let postprocess_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("postprocess"),
         layout: Some(&pipeline_layout),
         vertex: vertex_shader.clone(),
         fragment: Some(wgpu::FragmentState {
@@ -230,7 +271,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
-        let _ = (&instance, &adapter, &shader, &pipeline_layout);
+        let _ = (&instance, &adapter, &shader, &small_pass, &large_pass);
 
         *control_flow = ControlFlow::Poll;
         match event {
@@ -281,51 +322,45 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                             usage: wgpu::BufferUsage::VERTEX,
                         });
 
-                    let mut encoder = device
+                    let mut encoder: wgpu::CommandEncoder = device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                     {
-                        {
-                            let mut small_pass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: None,
-                                    color_attachments: &[
-                                        wgpu::RenderPassColorAttachmentDescriptor {
-                                            attachment: &small_view,
-                                            resolve_target: None,
-                                            ops: wgpu::Operations {
-                                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                                store: true,
-                                            },
-                                        },
-                                    ],
-                                    depth_stencil_attachment: None,
-                                });
-                            small_pass.set_pipeline(&small_pipeline);
-                            small_pass.set_vertex_buffer(0, instance_buf.slice(..));
-                            small_pass.set_vertex_buffer(1, vertex_buf.slice(..));
-                            small_pass.draw(
-                                0..(vertex_data.len() as u32),
-                                0..(instance_data.len() as u32),
-                            );
-                        }
+                        let mut small_render_pass = apply_pass(&mut encoder, &small_pass);
+                        small_render_pass.set_vertex_buffer(0, instance_buf.slice(..));
+                        small_render_pass.set_vertex_buffer(1, vertex_buf.slice(..));
+                        small_render_pass.draw(
+                            0..(vertex_data.len() as u32),
+                            0..(instance_data.len() as u32),
+                        );
+                        drop(small_render_pass);
 
-                        let mut big_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: None,
-                            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                                attachment: &frame.view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                    store: true,
-                                },
-                            }],
-                            depth_stencil_attachment: None,
-                        });
-                        big_pass.set_pipeline(&render_pipeline);
-                        big_pass.set_bind_group(0, &bind_group, &[]);
-                        big_pass.set_vertex_buffer(0, instance_buf.slice(..));
-                        big_pass.set_vertex_buffer(1, vertex_buf.slice(..));
-                        big_pass.draw(
+                        let mut large_render_pass = apply_pass(&mut encoder, &large_pass);
+                        large_render_pass.set_vertex_buffer(0, instance_buf.slice(..));
+                        large_render_pass.set_vertex_buffer(1, vertex_buf.slice(..));
+                        large_render_pass.draw(
+                            0..(vertex_data.len() as u32),
+                            0..(instance_data.len() as u32),
+                        );
+                        drop(large_render_pass);
+
+                        let mut postprocess_pass =
+                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: None,
+                                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                                    attachment: &frame.view,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                        store: true,
+                                    },
+                                }],
+                                depth_stencil_attachment: None,
+                            });
+                        postprocess_pass.set_pipeline(&postprocess_pipeline);
+                        postprocess_pass.set_bind_group(0, &large_bind_group, &[]);
+                        postprocess_pass.set_vertex_buffer(0, instance_buf.slice(..));
+                        postprocess_pass.set_vertex_buffer(1, vertex_buf.slice(..));
+                        postprocess_pass.draw(
                             0..(vertex_data.len() as u32),
                             0..(instance_data.len() as u32),
                         );
@@ -356,6 +391,30 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             _ => {}
         }
     });
+}
+
+fn apply_pass<'b>(
+    encoder: &'b mut wgpu::CommandEncoder,
+    pass: &'b AccumulatePass,
+) -> wgpu::RenderPass<'b> {
+    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: None,
+        color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+            attachment: &pass.view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: true,
+            },
+        }],
+        depth_stencil_attachment: None,
+    });
+    render_pass.set_pipeline(&pass.pipeline);
+    match pass.bind_group {
+        Some(ref b) => render_pass.set_bind_group(0, &b, &[]),
+        None => {}
+    };
+    render_pass
 }
 
 pub fn main() {
