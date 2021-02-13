@@ -33,6 +33,7 @@ struct Instance {
     row1: [f32; 4],
 }
 
+#[derive(PartialEq)]
 pub(crate) struct SceneState {
     cursor: Point2<f64>,
 }
@@ -129,6 +130,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         ..Default::default()
     });
 
+    let nearest_sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("accumulation sampler"),
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+
     let accumulation_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -155,7 +163,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             label: None,
         });
 
-    let make_bind_group = |p: &AccumulatePass| -> BindGroup {
+    let make_bind_group = |p: &AccumulatePass, filter: bool| -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &accumulation_bind_group_layout,
             entries: &[
@@ -165,7 +173,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&accumulation_sampler),
+                    resource: wgpu::BindingResource::Sampler(if filter {
+                        &nearest_sampler
+                    } else {
+                        &accumulation_sampler
+                    }),
                 },
             ],
             label: None,
@@ -176,7 +188,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         |width, height, name, previous: Option<&AccumulatePass>| -> AccumulatePass {
             // Create bind group
             let bind_group = match previous {
-                Some(p) => Some(make_bind_group(p)),
+                Some(p) => Some(make_bind_group(p, true)),
                 None => None,
             };
 
@@ -244,7 +256,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     );
     let large_pass = make_accumulation_pass(size.width, size.height, "large", Some(&small_pass));
 
-    let large_bind_group = make_bind_group(&large_pass);
+    let large_bind_group = make_bind_group(&large_pass, false);
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("postprocess pipeline"),
@@ -284,7 +296,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         format: swapchain_format,
         width: size.width,
         height: size.height,
-        present_mode: wgpu::PresentMode::Mailbox,
+        present_mode: wgpu::PresentMode::Fifo, // Mailbox
     };
 
     let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
@@ -302,7 +314,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             &postprocess_shader,
         );
 
-        *control_flow = ControlFlow::Poll;
+        *control_flow = ControlFlow::Wait;
         match event {
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
@@ -319,13 +331,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 ..
             } => {
                 let size = window.inner_size();
-                scene = SceneState {
+                let new_scene = SceneState {
                     cursor: Point2::new(
                         f64::from(position.x) / f64::from(size.width) * 2.0 - 1.0,
                         f64::from(position.y) / f64::from(size.height) * 2.0 - 1.0,
                     ),
                 };
-                window.request_redraw();
+                if new_scene != scene {
+                    scene = new_scene;
+                    window.request_redraw();
+                }
             }
 
             Event::RedrawRequested(_) => {
@@ -404,7 +419,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 frame_count += 1;
                 if frame_count % 100 == 0 {
                     let elapsed = started.elapsed();
-                    log::info!(
+                    log::error!(
                         "Frame Time: {:?}. FPS: {:.3}",
                         elapsed / frame_count as u32,
                         frame_count as f64 / elapsed.as_secs_f64()
