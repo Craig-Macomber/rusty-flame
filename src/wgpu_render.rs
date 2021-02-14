@@ -1,41 +1,21 @@
-use nalgebra::{Matrix3, Point2};
+use nalgebra::Point2;
 use winit::{
-    dpi::Size,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::Window,
 };
 
-use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
 use wgpu::{util::DeviceExt, BindGroup, Extent3d, TextureFormat};
 
 use crate::{
-    flame::{BoundedState, State},
-    geometry, get_state, split_levels, SMALL_ACCUMULATION_BUFFER_SIZE,
+    mesh::{build_mesh, build_quad},
+    SMALL_ACCUMULATION_BUFFER_SIZE,
 };
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct Vertex {
-    position: Position,
-    texture_coordinate: TextureCoordinate,
-}
-
-type TextureCoordinate = [f32; 2];
-
-type Position = [f32; 2];
-
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct Instance {
-    row0: [f32; 4],
-    row1: [f32; 4],
-}
-
 #[derive(PartialEq)]
-pub(crate) struct SceneState {
-    cursor: Point2<f64>,
+pub struct SceneState {
+    pub cursor: Point2<f64>,
 }
 
 struct AccumulatePass {
@@ -44,7 +24,7 @@ struct AccumulatePass {
     view: wgpu::TextureView,
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window) {
+pub async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut scene = SceneState {
         cursor: na::Point2::new(0.0, 0.0),
     };
@@ -462,132 +442,4 @@ fn apply_pass<'b>(
         None => {}
     };
     render_pass
-}
-
-pub fn main() {
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_inner_size(Size::Physical((3000, 2000).into()))
-        .with_title("Rusty Flame")
-        .build(&event_loop)
-        .unwrap();
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        wgpu_subscriber::initialize_default_subscriber(None);
-        // Temporarily avoid srgb formats for the swapchain on the web
-        pollster::block_on(run(event_loop, window));
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        console_log::init().expect("could not initialize logger");
-        use winit::platform::web::WindowExtWebSys;
-        // On wasm, append the canvas to the document body
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| doc.body())
-            .and_then(|body| {
-                body.append_child(&web_sys::Element::from(window.canvas()))
-                    .ok()
-            })
-            .expect("couldn't append canvas to document body");
-        wasm_bindgen_futures::spawn_local(run(event_loop, window));
-    }
-}
-
-fn build_mesh(scene: &SceneState) -> (Vec<Vertex>, Vec<Instance>) {
-    // Treat window as 2*2
-    // TODO: is this the right setup?
-    let root = get_state([scene.cursor.x + 1.0, scene.cursor.y + 1.0], [2.0, 2.0]);
-    let state = root.get_state();
-    let bounds = state.get_bounds();
-    let root_mat = geometry::letter_box(
-        geometry::Rect {
-            min: na::Point2::new(-1.0, -1.0),
-            max: na::Point2::new(1.0, 1.0),
-        },
-        bounds,
-    );
-
-    let corners = bounds.corners();
-    let mut positions: Vec<Position> = vec![];
-    let tri_verts = [
-        corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
-    ];
-
-    let uv_corners = geometry::Rect {
-        min: na::Point2::new(0.0, 0.0),
-        max: na::Point2::new(1.0, 1.0),
-    }
-    .corners();
-
-    let mut uv_verts: Vec<TextureCoordinate> = vec![];
-    let uv_tri_verts: Vec<TextureCoordinate> = [
-        uv_corners[0],
-        uv_corners[1],
-        uv_corners[2],
-        uv_corners[0],
-        uv_corners[2],
-        uv_corners[3],
-    ]
-    .iter()
-    .map(|c| [c.x as f32, c.y as f32].into())
-    .collect();
-
-    let split = split_levels();
-
-    state.process_levels(split.mesh, &mut |state| {
-        for t in &tri_verts {
-            let t2 = state.mat * t;
-            positions.push([t2.x as f32, t2.y as f32].into());
-        }
-        uv_verts.extend(uv_tri_verts.iter());
-    });
-
-    let verts = positions
-        .into_iter()
-        .zip(uv_verts.into_iter())
-        .map(|(v, u)| Vertex {
-            position: v,
-            texture_coordinate: u,
-        })
-        .collect();
-
-    let mut instances: Vec<Instance> = vec![];
-    state.process_levels(split.instance, &mut |state| {
-        let m: Matrix3<f64> = (root_mat * state.mat).to_homogeneous();
-        let s = m.as_slice();
-        instances.push(Instance {
-            row0: [s[0] as f32, s[3] as f32, s[6] as f32, 0f32],
-            row1: [s[1] as f32, s[4] as f32, s[7] as f32, 0f32],
-        });
-    });
-
-    return (verts, instances);
-}
-
-fn build_quad() -> Vec<Vertex> {
-    let corners = geometry::Rect {
-        min: na::Point2::new(-1.0, -1.0),
-        max: na::Point2::new(1.0, 1.0),
-    }
-    .corners();
-
-    let uv_corners = geometry::Rect {
-        min: na::Point2::new(0.0, 0.0),
-        max: na::Point2::new(1.0, 1.0),
-    }
-    .corners();
-
-    [0, 1, 2, 0, 2, 3]
-        .iter()
-        .map(|index| -> Vertex {
-            Vertex {
-                position: [corners[*index].x as f32, corners[*index].y as f32].into(),
-                texture_coordinate: [uv_corners[*index].x as f32, uv_corners[*index].y as f32]
-                    .into(),
-            }
-        })
-        .collect()
 }
