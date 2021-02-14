@@ -23,7 +23,8 @@ pub trait BoundedState<'a>: State<'a> {
 
     fn get_bounds(&self) -> Self::B {
         let mut b = Self::B::origin();
-        for level in 1..4 {
+        // Starting with too few levels can diverge to infinity for large scale factors
+        for level in 2..6 {
             let b_new = fixed_point::iterate(b, |input_bounds: &Self::B| {
                 let mut b2: Option<Self::B> = None;
                 self.process_levels(level, &mut |s| {

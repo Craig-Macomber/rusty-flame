@@ -8,14 +8,67 @@ use winit::{
 use std::borrow::Cow;
 use wgpu::{util::DeviceExt, BindGroup, Extent3d, TextureFormat};
 
-use crate::{
-    mesh::{build_mesh, build_quad},
-    SMALL_ACCUMULATION_BUFFER_SIZE,
-};
+use crate::mesh::{build_mesh, build_quad};
 
 #[derive(PartialEq)]
 pub struct SceneState {
     pub cursor: Point2<f64>,
+}
+
+pub(crate) struct Accumulate {
+    pub instance_levels: u32,
+    pub mesh_levels: u32,
+    size: winit::dpi::PhysicalSize<u32>,
+    name: String,
+}
+
+/// Scene independent plan. Redone on window resize.
+struct Plan {
+    passes: Vec<Accumulate>,
+}
+
+const SMALL_ACCUMULATION_BUFFER_SIZE: u32 = 256;
+const MID_ACCUMULATION_BUFFER_SIZE: u32 = 512;
+const LARGE_ACCUMULATION_BUFFER_SIZE: u32 = 1600;
+
+fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
+    Plan {
+        passes: vec![
+            Accumulate {
+                instance_levels: 4,
+                mesh_levels: 4,
+                size: winit::dpi::PhysicalSize {
+                    width: SMALL_ACCUMULATION_BUFFER_SIZE,
+                    height: SMALL_ACCUMULATION_BUFFER_SIZE,
+                },
+                name: "Small".to_owned(),
+            },
+            Accumulate {
+                instance_levels: 4,
+                mesh_levels: 4,
+                size: winit::dpi::PhysicalSize {
+                    width: MID_ACCUMULATION_BUFFER_SIZE,
+                    height: MID_ACCUMULATION_BUFFER_SIZE,
+                },
+                name: "Mid".to_owned(),
+            },
+            Accumulate {
+                instance_levels: 4,
+                mesh_levels: 4,
+                size: winit::dpi::PhysicalSize {
+                    width: LARGE_ACCUMULATION_BUFFER_SIZE,
+                    height: LARGE_ACCUMULATION_BUFFER_SIZE,
+                },
+                name: "Large".to_owned(),
+            },
+            Accumulate {
+                instance_levels: 4,
+                mesh_levels: 4,
+                size,
+                name: "Main".to_owned(),
+            },
+        ],
+    }
 }
 
 struct AccumulatePass {
@@ -164,79 +217,80 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
         })
     };
 
-    let make_accumulation_pass =
-        |width, height, name, previous: Option<&AccumulatePass>| -> AccumulatePass {
-            // Create bind group
-            let bind_group = match previous {
-                Some(p) => Some(make_bind_group(p, true)),
-                None => None,
-            };
-
-            let groups = &[&accumulation_bind_group_layout];
-            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("accumulation pipeline"),
-                bind_group_layouts: match bind_group {
-                    Some(_) => groups,
-                    None => &[],
-                },
-                push_constant_ranges: &[],
-            });
-
-            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(name),
-                layout: Some(&pipeline_layout),
-                vertex: vertex_shader.clone(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: match previous {
-                        Some(_) => "fs_main_textured",
-                        None => "fs_main",
-                    },
-                    targets: &[wgpu::ColorTargetState {
-                        format: TextureFormat::R32Float,
-                        color_blend: blend_add.clone(),
-                        alpha_blend: blend_add.clone(),
-                        write_mask: wgpu::ColorWrite::ALL,
-                    }],
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-            });
-
-            let texture: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
-                size: Extent3d {
-                    width,
-                    height,
-                    depth: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: TextureFormat::R32Float,
-                usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
-                label: Some(name),
-            });
-
-            let view: wgpu::TextureView =
-                texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-            AccumulatePass {
-                pipeline,
-                bind_group,
-                view,
-            }
+    let make_accumulation_pass = |accumulate: &Accumulate,
+                                  previous: Option<&AccumulatePass>|
+     -> AccumulatePass {
+        // Create bind group
+        let bind_group = match previous {
+            Some(p) => Some(make_bind_group(p, true)),
+            None => None,
         };
 
-    let small_pass = make_accumulation_pass(
-        SMALL_ACCUMULATION_BUFFER_SIZE,
-        SMALL_ACCUMULATION_BUFFER_SIZE,
-        "small",
-        None,
-    );
-    let large_pass = make_accumulation_pass(size.width, size.height, "large", Some(&small_pass));
+        let groups = &[&accumulation_bind_group_layout];
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("accumulation pipeline"),
+            bind_group_layouts: match bind_group {
+                Some(_) => groups,
+                None => &[],
+            },
+            push_constant_ranges: &[],
+        });
 
-    let large_bind_group = make_bind_group(&large_pass, false);
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(&accumulate.name),
+            layout: Some(&pipeline_layout),
+            vertex: vertex_shader.clone(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: match previous {
+                    Some(_) => "fs_main_textured",
+                    None => "fs_main",
+                },
+                targets: &[wgpu::ColorTargetState {
+                    format: TextureFormat::R32Float,
+                    color_blend: blend_add.clone(),
+                    alpha_blend: blend_add.clone(),
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+        });
+
+        let texture: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: Extent3d {
+                width: accumulate.size.width,
+                height: accumulate.size.height,
+                depth: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::R32Float,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+            label: Some(&accumulate.name),
+        });
+
+        let view: wgpu::TextureView = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        AccumulatePass {
+            pipeline,
+            bind_group,
+            view,
+        }
+    };
+
+    let plan = plan_render(size);
+
+    let mut passes: Vec<AccumulatePass> = vec![];
+    for p in &plan.passes {
+        passes.push(make_accumulation_pass(p, passes.last()))
+    }
+
+    let last_pass = passes.last().unwrap();
+
+    let large_bind_group = make_bind_group(&last_pass, false);
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("postprocess pipeline"),
@@ -285,14 +339,7 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
-        let _ = (
-            &instance,
-            &adapter,
-            &shader,
-            &small_pass,
-            &large_pass,
-            &postprocess_shader,
-        );
+        let _ = (&instance, &adapter, &shader, &passes, &postprocess_shader);
 
         *control_flow = ControlFlow::Wait;
         match event {
@@ -331,7 +378,8 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
 
                 {
                     // Draw main pass
-                    let (vertex_data, instance_data) = build_mesh(&scene);
+                    let (vertex_data, instance_data) =
+                        build_mesh(&scene, &plan.passes.last().unwrap()); // TODO: per pass mesh support
                     let quad_vertexes = build_quad();
 
                     let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -356,23 +404,15 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                     let mut encoder: wgpu::CommandEncoder = device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                     {
-                        let mut small_render_pass = apply_pass(&mut encoder, &small_pass);
-                        small_render_pass.set_vertex_buffer(0, instance_buf.slice(..));
-                        small_render_pass.set_vertex_buffer(1, vertex_buf.slice(..));
-                        small_render_pass.draw(
-                            0..(vertex_data.len() as u32),
-                            0..(instance_data.len() as u32),
-                        );
-                        drop(small_render_pass);
-
-                        let mut large_render_pass = apply_pass(&mut encoder, &large_pass);
-                        large_render_pass.set_vertex_buffer(0, instance_buf.slice(..));
-                        large_render_pass.set_vertex_buffer(1, vertex_buf.slice(..));
-                        large_render_pass.draw(
-                            0..(vertex_data.len() as u32),
-                            0..(instance_data.len() as u32),
-                        );
-                        drop(large_render_pass);
+                        for p in &passes {
+                            let mut small_render_pass = apply_pass(&mut encoder, p);
+                            small_render_pass.set_vertex_buffer(0, instance_buf.slice(..));
+                            small_render_pass.set_vertex_buffer(1, vertex_buf.slice(..));
+                            small_render_pass.draw(
+                                0..(vertex_data.len() as u32),
+                                0..(instance_data.len() as u32),
+                            );
+                        }
 
                         let mut postprocess_pass =
                             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

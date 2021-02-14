@@ -32,7 +32,12 @@ fn fs_main() {
     var v: f32 = tex.x;
     var l: f32 = log2(v) / 3.0;
 
-    if ( l > 3.0) {
+    l = l % 9.0;
+
+    if ( l > 6.0) {
+        l = l - 6.0;
+        out_color = vec4<f32>(l, l - 1.0, l - 2.0, 1.0);
+    } elseif ( l > 3.0) {
         l = l - 3.0;
         out_color = vec4<f32>(1.0 - l, 2.0 - l, 3.0 - l, 1.0);
     } else {

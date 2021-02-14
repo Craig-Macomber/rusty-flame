@@ -3,8 +3,8 @@ use nalgebra::Matrix3;
 
 use crate::{
     flame::{BoundedState, State},
-    geometry, get_state, split_levels,
-    wgpu_render::SceneState,
+    geometry, get_state,
+    wgpu_render::{Accumulate, SceneState},
 };
 
 #[repr(C)]
@@ -25,7 +25,7 @@ pub struct Instance {
     row1: [f32; 4],
 }
 
-pub fn build_mesh(scene: &SceneState) -> (Vec<Vertex>, Vec<Instance>) {
+pub(crate) fn build_mesh(scene: &SceneState, plan: &Accumulate) -> (Vec<Vertex>, Vec<Instance>) {
     let root = get_state([scene.cursor.x + 1.0, scene.cursor.y + 1.0], [2.0, 2.0]);
     let state = root.get_state();
     let bounds = state.get_bounds();
@@ -62,9 +62,7 @@ pub fn build_mesh(scene: &SceneState) -> (Vec<Vertex>, Vec<Instance>) {
     .map(|c| [c.x as f32, c.y as f32].into())
     .collect();
 
-    let split = split_levels();
-
-    state.process_levels(split.mesh, &mut |state| {
+    state.process_levels(plan.mesh_levels, &mut |state| {
         for t in &tri_verts {
             let t2 = state.mat * t;
             positions.push([t2.x as f32, t2.y as f32].into());
@@ -82,7 +80,7 @@ pub fn build_mesh(scene: &SceneState) -> (Vec<Vertex>, Vec<Instance>) {
         .collect();
 
     let mut instances: Vec<Instance> = vec![];
-    state.process_levels(split.instance, &mut |state| {
+    state.process_levels(plan.instance_levels, &mut |state| {
         let m: Matrix3<f64> = (root_mat * state.mat).to_homogeneous();
         let s = m.as_slice();
         instances.push(Instance {
