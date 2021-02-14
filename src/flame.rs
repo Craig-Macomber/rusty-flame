@@ -1,6 +1,6 @@
-use crate::fixed_point;
 use crate::geometry::{Bounds, Rect};
-use nalgebra::{Affine2, Similarity2};
+use crate::{fixed_point, geometry};
+use nalgebra::Affine2;
 use reduce::Reduce;
 use std::fmt::Debug;
 
@@ -84,13 +84,29 @@ impl<'a> State<'a> for AffineState<'a> {
 }
 
 #[derive(Debug)]
-pub struct Root<T> {
-    pub storage: Vec<T>,
+pub struct Root {
+    storage: Vec<Affine2<f64>>,
+    pub bounds: Rect,
 }
 
-impl Root<Affine2<f64>> {
+impl Root {
+    pub fn new(storage: Vec<Affine2<f64>>) -> Root {
+        let bounds = AffineState::new(Affine2::<f64>::identity(), &storage).get_bounds(); // This can be expensive, so cache it.
+        Root { storage, bounds }
+    }
+
+    pub fn root_mat(&self) -> Affine2<f64> {
+        geometry::letter_box(
+            geometry::Rect {
+                min: na::Point2::new(-1.0, -1.0),
+                max: na::Point2::new(1.0, 1.0),
+            },
+            self.bounds,
+        )
+    }
+
     pub fn get_state(&self) -> AffineState {
-        AffineState::new(na::convert(Similarity2::from_scaling(1.0)), &self.storage)
+        AffineState::new(Affine2::<f64>::identity(), &self.storage)
     }
 }
 
@@ -120,11 +136,9 @@ mod tests {
 
     #[test]
     fn shifted_bounds() {
-        let v = Root::<Affine2<f64>> {
-            storage: vec![na::convert(
-                Similarity2::from_scaling(0.5) * Translation2::new(5.0, 6.0),
-            )],
-        };
+        let v = Root::new(vec![na::convert(
+            Similarity2::from_scaling(0.5) * Translation2::new(5.0, 6.0),
+        )]);
 
         assert_eq!(
             fixed_point::iterate(Point2::new(0.0, 0.0), |p| v.storage[0].transform_point(p)),
@@ -175,7 +189,7 @@ mod tests {
             let scale = 0.5;
             let sm = Similarity2::from_scaling(scale);
 
-            let va = (0..n)
+            let storage = (0..n)
                 .map(|i| {
                     let offset =
                         Rotation2::new(std::f64::consts::PI * 2.0 * f64::from(i) / f64::from(n))
@@ -185,7 +199,7 @@ mod tests {
                 })
                 .collect::<Vec<Affine2<f64>>>();
 
-            let root = Root { storage: va };
+            let root = Root::new(storage);
 
             let bounds = checked_bounds(&root.get_state());
             assert!(bounds.contains(&Rect {

@@ -48,7 +48,7 @@ pub fn main() {
 const MIN_SCALE: f64 = 0.5;
 const MAX_SCALE: f64 = 0.8;
 
-pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root<Affine2<f64>> {
+pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root {
     let n: u32 = 3;
     let shift = 0.5;
     let max_grow = MAX_SCALE - MIN_SCALE;
@@ -69,5 +69,5 @@ pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root<Affine2<f64>> {
     va[0] *= Rotation2::new(20.0 * y);
     va[1] *= Rotation2::new(20.0 * x);
 
-    Root { storage: va }
+    Root::new(va)
 }

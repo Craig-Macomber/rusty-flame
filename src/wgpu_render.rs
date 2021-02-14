@@ -8,7 +8,11 @@ use winit::{
 use std::borrow::Cow;
 use wgpu::{util::DeviceExt, BindGroup, Extent3d, TextureFormat};
 
-use crate::mesh::{build_mesh, build_quad};
+use crate::{
+    flame::Root,
+    get_state,
+    mesh::{build_instances, build_mesh, build_quad},
+};
 
 #[derive(PartialEq)]
 pub struct SceneState {
@@ -377,9 +381,13 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                     .output;
 
                 {
+                    let root: Root =
+                        get_state([scene.cursor.x + 1.0, scene.cursor.y + 1.0], [2.0, 2.0]);
                     // Draw main pass
-                    let (vertex_data, instance_data) =
-                        build_mesh(&scene, &plan.passes.last().unwrap()); // TODO: per pass mesh support
+                    let vertex_data = build_mesh(&root, plan.passes.last().unwrap().mesh_levels); // TODO: per pass mesh support
+
+                    let instance_data =
+                        build_instances(&root, plan.passes.last().unwrap().instance_levels);
                     let quad_vertexes = build_quad();
 
                     let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

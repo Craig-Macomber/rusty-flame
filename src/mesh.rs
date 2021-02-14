@@ -2,9 +2,8 @@ use bytemuck::{Pod, Zeroable};
 use nalgebra::Matrix3;
 
 use crate::{
-    flame::{BoundedState, State},
-    geometry, get_state,
-    wgpu_render::{Accumulate, SceneState},
+    flame::{Root, State},
+    geometry,
 };
 
 #[repr(C)]
@@ -25,19 +24,8 @@ pub struct Instance {
     row1: [f32; 4],
 }
 
-pub(crate) fn build_mesh(scene: &SceneState, plan: &Accumulate) -> (Vec<Vertex>, Vec<Instance>) {
-    let root = get_state([scene.cursor.x + 1.0, scene.cursor.y + 1.0], [2.0, 2.0]);
-    let state = root.get_state();
-    let bounds = state.get_bounds();
-    let root_mat = geometry::letter_box(
-        geometry::Rect {
-            min: na::Point2::new(-1.0, -1.0),
-            max: na::Point2::new(1.0, 1.0),
-        },
-        bounds,
-    );
-
-    let corners = bounds.corners();
+pub(crate) fn build_mesh(root: &Root, levels: u32) -> Vec<Vertex> {
+    let corners = root.bounds.corners();
     let mut positions: Vec<Position> = vec![];
     let tri_verts = [
         corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
@@ -62,7 +50,7 @@ pub(crate) fn build_mesh(scene: &SceneState, plan: &Accumulate) -> (Vec<Vertex>,
     .map(|c| [c.x as f32, c.y as f32].into())
     .collect();
 
-    state.process_levels(plan.mesh_levels, &mut |state| {
+    root.get_state().process_levels(levels, &mut |state| {
         for t in &tri_verts {
             let t2 = state.mat * t;
             positions.push([t2.x as f32, t2.y as f32].into());
@@ -70,18 +58,20 @@ pub(crate) fn build_mesh(scene: &SceneState, plan: &Accumulate) -> (Vec<Vertex>,
         uv_verts.extend(uv_tri_verts.iter());
     });
 
-    let verts = positions
+    positions
         .into_iter()
         .zip(uv_verts.into_iter())
         .map(|(v, u)| Vertex {
             position: v,
             texture_coordinate: u,
         })
-        .collect();
+        .collect()
+}
 
+pub(crate) fn build_instances(root: &Root, levels: u32) -> Vec<Instance> {
     let mut instances: Vec<Instance> = vec![];
-    state.process_levels(plan.instance_levels, &mut |state| {
-        let m: Matrix3<f64> = (root_mat * state.mat).to_homogeneous();
+    root.get_state().process_levels(levels, &mut |state| {
+        let m: Matrix3<f64> = (root.root_mat() * state.mat).to_homogeneous();
         let s = m.as_slice();
         instances.push(Instance {
             row0: [s[0] as f32, s[3] as f32, s[6] as f32, 0f32],
@@ -89,7 +79,7 @@ pub(crate) fn build_mesh(scene: &SceneState, plan: &Accumulate) -> (Vec<Vertex>,
         });
     });
 
-    return (verts, instances);
+    instances
 }
 
 pub fn build_quad() -> Vec<Vertex> {
