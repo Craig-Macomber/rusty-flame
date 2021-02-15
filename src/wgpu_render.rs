@@ -5,8 +5,8 @@ use winit::{
     window::Window,
 };
 
-use std::borrow::Cow;
-use wgpu::{util::DeviceExt, BindGroup, Extent3d, TextureFormat};
+use std::{borrow::Cow, collections::HashMap};
+use wgpu::{util::DeviceExt, BindGroup, Buffer, Extent3d, TextureFormat};
 
 use crate::{
     flame::Root,
@@ -19,6 +19,7 @@ pub struct SceneState {
     pub cursor: Point2<f64>,
 }
 
+#[derive(Clone)]
 pub(crate) struct Accumulate {
     pub instance_levels: u32,
     pub mesh_levels: u32,
@@ -33,14 +34,15 @@ struct Plan {
 
 const SMALL_ACCUMULATION_BUFFER_SIZE: u32 = 256;
 const MID_ACCUMULATION_BUFFER_SIZE: u32 = 512;
-const LARGE_ACCUMULATION_BUFFER_SIZE: u32 = 1600;
+const LARGE_ACCUMULATION_BUFFER_SIZE: u32 = 1024;
+const LARGE_ACCUMULATION_BUFFER_SIZE2: u32 = 1800;
 
 fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
     Plan {
         passes: vec![
             Accumulate {
-                instance_levels: 4,
-                mesh_levels: 4,
+                instance_levels: 6,
+                mesh_levels: 6,
                 size: winit::dpi::PhysicalSize {
                     width: SMALL_ACCUMULATION_BUFFER_SIZE,
                     height: SMALL_ACCUMULATION_BUFFER_SIZE,
@@ -49,7 +51,7 @@ fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
             },
             Accumulate {
                 instance_levels: 4,
-                mesh_levels: 4,
+                mesh_levels: 6,
                 size: winit::dpi::PhysicalSize {
                     width: MID_ACCUMULATION_BUFFER_SIZE,
                     height: MID_ACCUMULATION_BUFFER_SIZE,
@@ -66,8 +68,17 @@ fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
                 name: "Large".to_owned(),
             },
             Accumulate {
-                instance_levels: 4,
-                mesh_levels: 4,
+                instance_levels: 2,
+                mesh_levels: 2,
+                size: winit::dpi::PhysicalSize {
+                    width: LARGE_ACCUMULATION_BUFFER_SIZE2,
+                    height: LARGE_ACCUMULATION_BUFFER_SIZE2,
+                },
+                name: "Large2".to_owned(),
+            },
+            Accumulate {
+                instance_levels: 2,
+                mesh_levels: 2,
                 size,
                 name: "Main".to_owned(),
             },
@@ -79,6 +90,12 @@ struct AccumulatePass {
     pipeline: wgpu::RenderPipeline,
     bind_group: Option<wgpu::BindGroup>,
     view: wgpu::TextureView,
+    spec: Accumulate,
+}
+
+struct MeshData {
+    count: usize,
+    buffer: Buffer,
 }
 
 pub async fn run(event_loop: EventLoop<()>, window: Window) {
@@ -282,6 +299,7 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
             pipeline,
             bind_group,
             view,
+            spec: accumulate.clone(),
         }
     };
 
@@ -383,62 +401,88 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                 {
                     let root: Root =
                         get_state([scene.cursor.x + 1.0, scene.cursor.y + 1.0], [2.0, 2.0]);
-                    // Draw main pass
-                    let vertex_data = build_mesh(&root, plan.passes.last().unwrap().mesh_levels); // TODO: per pass mesh support
 
-                    let instance_data =
-                        build_instances(&root, plan.passes.last().unwrap().instance_levels);
-                    let quad_vertexes = build_quad();
+                    let mut mesh_cache: HashMap<u32, MeshData> = HashMap::new();
 
-                    let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Vertex Buffer"),
-                        contents: bytemuck::cast_slice(&vertex_data),
-                        usage: wgpu::BufferUsage::VERTEX,
-                    });
-
-                    let quad_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Quad Vertex Buffer"),
-                        contents: bytemuck::cast_slice(&quad_vertexes),
-                        usage: wgpu::BufferUsage::VERTEX,
-                    });
-
-                    let instance_buf =
-                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Instance Buffer"),
-                            contents: bytemuck::cast_slice(&instance_data),
+                    let build_mesh_data = |levels: &u32| {
+                        let vertexes = build_mesh(&root, *levels);
+                        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Vertex Buffer"),
+                            contents: bytemuck::cast_slice(&vertexes),
                             usage: wgpu::BufferUsage::VERTEX,
                         });
+                        MeshData {
+                            count: vertexes.len(),
+                            buffer,
+                        }
+                    };
+
+                    let mut instance_cache: HashMap<u32, MeshData> = HashMap::new();
+
+                    let build_instance_data = |levels: &u32| {
+                        let instances = build_instances(&root, *levels);
+                        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Instance Buffer"),
+                            contents: bytemuck::cast_slice(&instances),
+                            usage: wgpu::BufferUsage::VERTEX,
+                        });
+                        MeshData {
+                            count: instances.len(),
+                            buffer,
+                        }
+                    };
+
+                    // Draw main pass
 
                     let mut encoder: wgpu::CommandEncoder = device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                     {
                         for p in &passes {
+                            let vertex_data = mesh_cache
+                                .entry(p.spec.mesh_levels)
+                                .or_insert_with_key(build_mesh_data);
+                            let instance_data = instance_cache
+                                .entry(p.spec.instance_levels)
+                                .or_insert_with_key(build_instance_data);
+
                             let mut small_render_pass = apply_pass(&mut encoder, p);
-                            small_render_pass.set_vertex_buffer(0, instance_buf.slice(..));
-                            small_render_pass.set_vertex_buffer(1, vertex_buf.slice(..));
+                            small_render_pass.set_vertex_buffer(0, instance_data.buffer.slice(..));
+                            small_render_pass.set_vertex_buffer(1, vertex_data.buffer.slice(..));
                             small_render_pass.draw(
-                                0..(vertex_data.len() as u32),
-                                0..(instance_data.len() as u32),
+                                0..(vertex_data.count as u32),
+                                0..(instance_data.count as u32),
                             );
                         }
 
-                        let mut postprocess_pass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Postprocess render pass"),
-                                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                                    attachment: &frame.view,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                        store: true,
-                                    },
-                                }],
-                                depth_stencil_attachment: None,
+                        let quad_vertexes = build_quad();
+                        let quad_buf =
+                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Quad Vertex Buffer"),
+                                contents: bytemuck::cast_slice(&quad_vertexes),
+                                usage: wgpu::BufferUsage::VERTEX,
                             });
-                        postprocess_pass.set_pipeline(&postprocess_pipeline);
-                        postprocess_pass.set_bind_group(0, &large_bind_group, &[]);
-                        postprocess_pass.set_vertex_buffer(0, quad_buf.slice(..));
-                        postprocess_pass.draw(0..(quad_vertexes.len() as u32), 0..1);
+                        {
+                            let mut postprocess_pass =
+                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("Postprocess render pass"),
+                                    color_attachments: &[
+                                        wgpu::RenderPassColorAttachmentDescriptor {
+                                            attachment: &frame.view,
+                                            resolve_target: None,
+                                            ops: wgpu::Operations {
+                                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                                store: true,
+                                            },
+                                        },
+                                    ],
+                                    depth_stencil_attachment: None,
+                                });
+
+                            postprocess_pass.set_pipeline(&postprocess_pipeline);
+                            postprocess_pass.set_bind_group(0, &large_bind_group, &[]);
+                            postprocess_pass.set_vertex_buffer(0, quad_buf.slice(..));
+                            postprocess_pass.draw(0..(quad_vertexes.len() as u32), 0..1);
+                        }
                     }
 
                     queue.submit(Some(encoder.finish()));
