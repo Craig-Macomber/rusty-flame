@@ -24,48 +24,27 @@ pub struct Instance {
     row1: [f32; 4],
 }
 
+fn convert_point(p: &na::Point2<f64>) -> [f32; 2] {
+    [p.x as f32, p.y as f32]
+}
+
+const TRIANGLE_INDEXES_FOR_QUAD: [usize; 6] = [0, 1, 2, 0, 2, 3];
+const UV_QUAD: [TextureCoordinate; 4] = [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]];
+
 pub(crate) fn build_mesh(root: &Root, levels: u32) -> Vec<Vertex> {
     let corners = root.bounds.corners();
-    let mut positions: Vec<Position> = vec![];
-    let tri_verts = [
-        corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
-    ];
 
-    let uv_corners = geometry::Rect {
-        min: na::Point2::new(0.0, 0.0),
-        max: na::Point2::new(1.0, 1.0),
-    }
-    .corners();
-
-    let mut uv_verts: Vec<TextureCoordinate> = vec![];
-    let uv_tri_verts: Vec<TextureCoordinate> = [
-        uv_corners[0],
-        uv_corners[1],
-        uv_corners[2],
-        uv_corners[0],
-        uv_corners[2],
-        uv_corners[3],
-    ]
-    .iter()
-    .map(|c| [c.x as f32, c.y as f32].into())
-    .collect();
-
+    let mut vertexes = vec![];
     root.get_state().process_levels(levels, &mut |state| {
-        for t in &tri_verts {
-            let t2 = state.mat * t;
-            positions.push([t2.x as f32, t2.y as f32].into());
+        for i in &TRIANGLE_INDEXES_FOR_QUAD {
+            let t2 = state.mat * corners[*i];
+            vertexes.push(Vertex {
+                position: convert_point(&t2),
+                texture_coordinate: UV_QUAD[*i],
+            })
         }
-        uv_verts.extend(uv_tri_verts.iter());
     });
-
-    positions
-        .into_iter()
-        .zip(uv_verts.into_iter())
-        .map(|(v, u)| Vertex {
-            position: v,
-            texture_coordinate: u,
-        })
-        .collect()
+    vertexes
 }
 
 pub(crate) fn build_instances(root: &Root, levels: u32) -> Vec<Instance> {
@@ -82,26 +61,22 @@ pub(crate) fn build_instances(root: &Root, levels: u32) -> Vec<Instance> {
     instances
 }
 
-pub fn build_quad() -> Vec<Vertex> {
-    let corners = geometry::Rect {
+pub(crate) fn build_quad() -> Vec<Vertex> {
+    let corners: Vec<Position> = geometry::Rect {
         min: na::Point2::new(-1.0, -1.0),
         max: na::Point2::new(1.0, 1.0),
     }
-    .corners();
+    .corners()
+    .iter()
+    .map(convert_point)
+    .collect();
 
-    let uv_corners = geometry::Rect {
-        min: na::Point2::new(0.0, 0.0),
-        max: na::Point2::new(1.0, 1.0),
-    }
-    .corners();
-
-    [0, 1, 2, 0, 2, 3]
+    TRIANGLE_INDEXES_FOR_QUAD
         .iter()
         .map(|index| -> Vertex {
             Vertex {
-                position: [corners[*index].x as f32, corners[*index].y as f32].into(),
-                texture_coordinate: [uv_corners[*index].x as f32, uv_corners[*index].y as f32]
-                    .into(),
+                position: corners[*index],
+                texture_coordinate: UV_QUAD[*index],
             }
         })
         .collect()
