@@ -4,9 +4,14 @@ extern crate nalgebra as na;
 
 use crate::flame::Root;
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
-use wgpu_render::run;
-use winit::{dpi::Size, event_loop::EventLoop, window::WindowBuilder};
-
+use wgpu_render::{ParametricScene, PlanRenderer, SceneFrame, SizedScene};
+use winit::{
+    dpi::{PhysicalSize, Size},
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::Window,
+    window::WindowBuilder,
+};
 mod fixed_point;
 mod flame;
 pub mod geometry;
@@ -70,4 +75,128 @@ pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root {
     va[1] *= Rotation2::new(20.0 * x);
 
     Root::new(va)
+}
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub struct SceneState {
+    pub cursor: Point2<f64>,
+}
+
+pub async fn run(event_loop: EventLoop<()>, window: Window) {
+    let mut scene = SceneState {
+        cursor: na::Point2::new(0.0, 0.0),
+    };
+    let mut started = std::time::Instant::now();
+    let mut frame_count = 0u64;
+
+    let size: PhysicalSize<u32> = window.inner_size();
+    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
+    let surface = unsafe { instance.create_surface(&window) };
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            // Request an adapter which can render to our surface
+            compatible_surface: Some(&surface),
+        })
+        .await
+        .expect("Failed to find an appropriate adapter");
+
+    // Create the logical device and command queue
+    let (device, queue) = adapter
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                label: None,
+                features: wgpu::Features::empty(),
+                limits: wgpu::Limits::default(),
+            },
+            None,
+        )
+        .await
+        .expect("Failed to create device");
+
+    let swapchain_format = adapter.get_swap_chain_preferred_format(&surface);
+
+    let mut sc_desc = wgpu::SwapChainDescriptor {
+        usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
+        format: swapchain_format,
+        width: size.width,
+        height: size.height,
+        present_mode: wgpu::PresentMode::Fifo, // Mailbox
+    };
+
+    let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
+    let mut renderer = PlanRenderer::new(device, queue, swapchain_format);
+
+    event_loop.run(move |event, _, control_flow| {
+        // Have the closure take ownership of the resources.
+        // `event_loop.run` never returns, therefore we must do this to ensure
+        // the resources are properly cleaned up.
+        // let _ = (&device, &queue, &instance, &adapter, &renderer);
+
+        *control_flow = ControlFlow::Wait;
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::Resized(size),
+                ..
+            } => {
+                // Recreate the swap chain with the new size
+                sc_desc.width = size.width;
+                sc_desc.height = size.height;
+                swap_chain = renderer.data.device.create_swap_chain(&surface, &sc_desc);
+                log::error!("resize");
+            }
+
+            Event::WindowEvent {
+                event: WindowEvent::CursorMoved { position, .. },
+                ..
+            } => {
+                let size = window.inner_size();
+                let new_scene = SceneState {
+                    cursor: Point2::new(
+                        f64::from(position.x) / f64::from(size.width) * 2.0 - 1.0,
+                        f64::from(position.y) / f64::from(size.height) * 2.0 - 1.0,
+                    ),
+                };
+                if new_scene != scene {
+                    scene = new_scene;
+                    window.request_redraw();
+                }
+            }
+
+            Event::RedrawRequested(_) => {
+                let frame = swap_chain
+                    .get_current_frame()
+                    .expect("Failed to acquire next swap chain texture")
+                    .output;
+
+                renderer.render(&SizedScene {
+                    scene: SceneFrame {
+                        state: scene,
+                        frame,
+                    },
+                    size,
+                });
+
+                frame_count += 1;
+                if frame_count % 100 == 0 {
+                    let elapsed = started.elapsed();
+                    log::error!(
+                        "Frame Time: {:?}. FPS: {:.3}",
+                        elapsed / frame_count as u32,
+                        frame_count as f64 / elapsed.as_secs_f64()
+                    );
+                    started = std::time::Instant::now();
+                    frame_count = 0;
+                }
+            }
+            // Event::MainEventsCleared => {
+            //     window.request_redraw(); // Enable to busy loop
+            // }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            _ => {}
+        }
+    });
 }

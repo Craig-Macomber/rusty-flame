@@ -1,29 +1,21 @@
-use nalgebra::Point2;
-use winit::{
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    window::Window,
-};
-
 use std::{borrow::Cow, collections::HashMap};
-use wgpu::{util::DeviceExt, BindGroup, Buffer, Extent3d, TextureFormat};
+use wgpu::{
+    util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Extent3d, Queue, ShaderModule,
+    TextureFormat,
+};
+use winit::dpi::PhysicalSize;
 
 use crate::{
-    flame::Root,
     get_state,
     mesh::{build_instances, build_mesh, build_quad},
+    SceneState,
 };
 
-#[derive(PartialEq)]
-pub struct SceneState {
-    pub cursor: Point2<f64>,
-}
-
 #[derive(Clone)]
-pub(crate) struct Accumulate {
+struct Accumulate {
     pub instance_levels: u32,
     pub mesh_levels: u32,
-    size: winit::dpi::PhysicalSize<u32>,
+    size: PhysicalSize<u32>,
     name: String,
 }
 
@@ -86,6 +78,416 @@ fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
     }
 }
 
+#[derive(Debug)]
+pub struct SceneFrame {
+    pub state: SceneState,
+    pub frame: wgpu::SwapChainTexture,
+}
+
+/// Efficiently renders a seen as a parameter changes.
+pub trait ParametricScene<T> {
+    fn render(&mut self, t: T);
+}
+
+pub struct SizedScene {
+    pub scene: SceneFrame,
+    pub size: PhysicalSize<u32>,
+}
+
+/// Non size dependent cached data
+pub(crate) struct PlaneRendererData {
+    pub device: Device,
+    queue: Queue,
+    shader: ShaderModule,
+    postprocess_shader: ShaderModule,
+    gradient_bind_group: wgpu::BindGroup,
+    gradient_bind_group_layout: BindGroupLayout,
+    swapchain_format: TextureFormat,
+}
+
+pub(crate) struct PlanRenderer {
+    pub data: PlaneRendererData,
+    cached: Option<SizePlanRenderer>,
+}
+
+/// Size dependant data
+struct SizePlanRenderer {
+    size: PhysicalSize<u32>,
+    passes: Vec<AccumulatePass>,
+    postprocess_pipeline: wgpu::RenderPipeline,
+    large_bind_group: wgpu::BindGroup,
+}
+
+impl ParametricScene<&SizedScene> for PlanRenderer {
+    fn render(&mut self, t: &SizedScene) {
+        match &self.cached {
+            Some(s) => {
+                if s.size != t.size {
+                    self.cached = None;
+                }
+            }
+            None => {}
+        }
+
+        let data = &self.data;
+
+        let sized: &mut SizePlanRenderer = self.cached.get_or_insert_with(|| {
+            let device = &data.device;
+
+            let accumulation_bind_group_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStage::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                multisampled: false,
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStage::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler {
+                                comparison: false,
+                                filtering: true,
+                            },
+                            count: None,
+                        },
+                    ],
+                    label: None,
+                });
+
+            let blend_add = wgpu::BlendState {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            };
+
+            let blend_replace = wgpu::BlendState {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::Zero,
+                operation: wgpu::BlendOperation::Add,
+            };
+
+            // TODO: mipmap filtering and generation
+            let accumulation_sampler: wgpu::Sampler =
+                device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("accumulation sampler"),
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                });
+
+            let nearest_sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("accumulation sampler"),
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+
+            let make_bind_group = |p: &AccumulatePass, filter: bool| -> BindGroup {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &accumulation_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&p.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(if filter {
+                                &nearest_sampler
+                            } else {
+                                &accumulation_sampler
+                            }),
+                        },
+                    ],
+                    label: None,
+                })
+            };
+
+            let vertex_shader = wgpu::VertexState {
+                module: &data.shader,
+                entry_point: "vs_main",
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: 2 * 4 * 4,
+                        step_mode: wgpu::InputStepMode::Instance,
+                        attributes: &wgpu::vertex_attr_array![0 => Float4, 1 => Float4], // Rows of matrix
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: 2 * 2 * 4,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![2 => Float2, 3 => Float2],
+                    },
+                ],
+            };
+
+            let make_accumulation_pass =
+                |accumulate: &Accumulate, previous: Option<&AccumulatePass>| -> AccumulatePass {
+                    // Create bind group
+                    let bind_group = match previous {
+                        Some(p) => Some(make_bind_group(p, true)),
+                        None => None,
+                    };
+
+                    let groups = &[&accumulation_bind_group_layout];
+                    let pipeline_layout =
+                        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                            label: Some("accumulation pipeline"),
+                            bind_group_layouts: match bind_group {
+                                Some(_) => groups,
+                                None => &[],
+                            },
+                            push_constant_ranges: &[],
+                        });
+
+                    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some(&accumulate.name),
+                        layout: Some(&pipeline_layout),
+                        vertex: vertex_shader.clone(),
+                        fragment: Some(wgpu::FragmentState {
+                            module: &data.shader,
+                            entry_point: match previous {
+                                Some(_) => "fs_main_textured",
+                                None => "fs_main",
+                            },
+                            targets: &[wgpu::ColorTargetState {
+                                format: TextureFormat::R32Float,
+                                color_blend: blend_add.clone(),
+                                alpha_blend: blend_add.clone(),
+                                write_mask: wgpu::ColorWrite::ALL,
+                            }],
+                        }),
+                        primitive: wgpu::PrimitiveState::default(),
+                        depth_stencil: None,
+                        multisample: wgpu::MultisampleState::default(),
+                    });
+
+                    let texture: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
+                        size: Extent3d {
+                            width: accumulate.size.width,
+                            height: accumulate.size.height,
+                            depth: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: TextureFormat::R32Float,
+                        usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+                        label: Some(&accumulate.name),
+                    });
+
+                    let view: wgpu::TextureView =
+                        texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                    AccumulatePass {
+                        pipeline,
+                        bind_group,
+                        view,
+                        spec: accumulate.clone(),
+                    }
+                };
+
+            let plan = plan_render(t.size);
+
+            let mut passes: Vec<AccumulatePass> = vec![];
+            for p in &plan.passes {
+                passes.push(make_accumulation_pass(p, passes.last()))
+            }
+
+            let last_pass = passes.last().unwrap();
+
+            let large_bind_group = make_bind_group(&last_pass, false);
+
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("postprocess pipeline"),
+                bind_group_layouts: &[
+                    &accumulation_bind_group_layout,
+                    &data.gradient_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+            let postprocess_pipeline: wgpu::RenderPipeline =
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("postprocess"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &data.postprocess_shader,
+                        entry_point: "vs_main",
+                        buffers: &[wgpu::VertexBufferLayout {
+                            array_stride: 2 * 2 * 4,
+                            step_mode: wgpu::InputStepMode::Vertex,
+                            attributes: &wgpu::vertex_attr_array![0 => Float2, 1 => Float2],
+                        }],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &data.postprocess_shader,
+                        entry_point: "fs_main",
+                        targets: &[wgpu::ColorTargetState {
+                            format: data.swapchain_format,
+                            color_blend: blend_replace.clone(),
+                            alpha_blend: blend_replace.clone(),
+                            write_mask: wgpu::ColorWrite::ALL,
+                        }],
+                    }),
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                });
+
+            SizePlanRenderer {
+                size: t.size,
+                passes,
+                large_bind_group,
+                postprocess_pipeline,
+            }
+        });
+
+        sized.render((data, &t.scene))
+    }
+}
+
+impl PlanRenderer {
+    pub fn new(device: Device, queue: Queue, swapchain_format: TextureFormat) -> Self {
+        PlanRenderer {
+            data: PlaneRendererData::new(device, queue, swapchain_format),
+            cached: None,
+        }
+    }
+}
+
+impl PlaneRendererData {
+    fn new(device: Device, queue: Queue, swapchain_format: TextureFormat) -> Self {
+        // Load the shaders from disk
+        let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("wgpu.wgsl"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
+            flags: wgpu::ShaderFlags::all(),
+        });
+
+        let postprocess_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("postprocess.wgsl"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+                "../shaders/postprocess.wgsl"
+            ))),
+            flags: wgpu::ShaderFlags::all(),
+        });
+
+        let diffuse_bytes = include_bytes!("../images/gradient.png");
+        let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
+        let diffuse_rgba = diffuse_image.as_rgba8().unwrap();
+
+        use image::GenericImageView;
+        let dimensions = diffuse_image.dimensions();
+
+        let texture_size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth: 1,
+        };
+
+        let diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
+            // All textures are stored as 3D, we represent our 2D texture
+            // by setting depth to 1.
+            size: texture_size,
+            mip_level_count: 1, // We'll talk about this a little later
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D1,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            // SAMPLED tells wgpu that we want to use this texture in shaders
+            // COPY_DST means that we want to copy data to this texture
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+            label: Some("diffuse_texture"),
+        });
+
+        queue.write_texture(
+            // Tells wgpu where to copy the pixel data
+            wgpu::TextureCopyView {
+                texture: &diffuse_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            // The actual pixel data
+            diffuse_rgba,
+            // The layout of the texture
+            wgpu::TextureDataLayout {
+                offset: 0,
+                bytes_per_row: 4 * dimensions.0,
+                rows_per_image: dimensions.1,
+            },
+            texture_size,
+        );
+
+        let diffuse_texture_view =
+            diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let diffuse_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let gradient_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D1,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler {
+                            comparison: false,
+                            filtering: true,
+                        },
+                        count: None,
+                    },
+                ],
+                label: None,
+            });
+
+        let gradient_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &gradient_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+                },
+            ],
+            label: None,
+        });
+
+        PlaneRendererData {
+            device,
+            queue,
+            shader,
+            postprocess_shader,
+            gradient_bind_group,
+            gradient_bind_group_layout,
+            swapchain_format,
+        }
+    }
+}
+
 struct AccumulatePass {
     pipeline: wgpu::RenderPipeline,
     bind_group: Option<wgpu::BindGroup>,
@@ -96,518 +498,6 @@ struct AccumulatePass {
 struct MeshData {
     count: usize,
     buffer: Buffer,
-}
-
-pub async fn run(event_loop: EventLoop<()>, window: Window) {
-    let mut scene = SceneState {
-        cursor: na::Point2::new(0.0, 0.0),
-    };
-    let mut started = std::time::Instant::now();
-    let mut frame_count = 0u64;
-
-    let size = window.inner_size();
-    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
-    let surface = unsafe { instance.create_surface(&window) };
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            // Request an adapter which can render to our surface
-            compatible_surface: Some(&surface),
-        })
-        .await
-        .expect("Failed to find an appropriate adapter");
-
-    // Create the logical device and command queue
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                features: wgpu::Features::empty(),
-                limits: wgpu::Limits::default(),
-            },
-            None,
-        )
-        .await
-        .expect("Failed to create device");
-
-    // Load the shaders from disk
-    let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-        label: Some("wgpu.wgsl"),
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
-        flags: wgpu::ShaderFlags::all(),
-    });
-
-    let postprocess_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-        label: Some("postprocess.wgsl"),
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
-            "../shaders/postprocess.wgsl"
-        ))),
-        flags: wgpu::ShaderFlags::all(),
-    });
-
-    let swapchain_format = adapter.get_swap_chain_preferred_format(&surface);
-
-    let vertex_shader = wgpu::VertexState {
-        module: &shader,
-        entry_point: "vs_main",
-        buffers: &[
-            wgpu::VertexBufferLayout {
-                array_stride: 2 * 4 * 4,
-                step_mode: wgpu::InputStepMode::Instance,
-                attributes: &wgpu::vertex_attr_array![0 => Float4, 1 => Float4], // Rows of matrix
-            },
-            wgpu::VertexBufferLayout {
-                array_stride: 2 * 2 * 4,
-                step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![2 => Float2, 3 => Float2],
-            },
-        ],
-    };
-
-    let blend_add = wgpu::BlendState {
-        src_factor: wgpu::BlendFactor::One,
-        dst_factor: wgpu::BlendFactor::One,
-        operation: wgpu::BlendOperation::Add,
-    };
-
-    let blend_replace = wgpu::BlendState {
-        src_factor: wgpu::BlendFactor::One,
-        dst_factor: wgpu::BlendFactor::Zero,
-        operation: wgpu::BlendOperation::Add,
-    };
-
-    // TODO: mipmap filtering and generation
-    let accumulation_sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("accumulation sampler"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        ..Default::default()
-    });
-
-    let nearest_sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("accumulation sampler"),
-        mag_filter: wgpu::FilterMode::Nearest,
-        min_filter: wgpu::FilterMode::Nearest,
-        ..Default::default()
-    });
-
-    let accumulation_bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler {
-                        comparison: false,
-                        filtering: true,
-                    },
-                    count: None,
-                },
-            ],
-            label: None,
-        });
-
-    let make_bind_group = |p: &AccumulatePass, filter: bool| -> BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &accumulation_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&p.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(if filter {
-                        &nearest_sampler
-                    } else {
-                        &accumulation_sampler
-                    }),
-                },
-            ],
-            label: None,
-        })
-    };
-
-    let make_accumulation_pass = |accumulate: &Accumulate,
-                                  previous: Option<&AccumulatePass>|
-     -> AccumulatePass {
-        // Create bind group
-        let bind_group = match previous {
-            Some(p) => Some(make_bind_group(p, true)),
-            None => None,
-        };
-
-        let groups = &[&accumulation_bind_group_layout];
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("accumulation pipeline"),
-            bind_group_layouts: match bind_group {
-                Some(_) => groups,
-                None => &[],
-            },
-            push_constant_ranges: &[],
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(&accumulate.name),
-            layout: Some(&pipeline_layout),
-            vertex: vertex_shader.clone(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: match previous {
-                    Some(_) => "fs_main_textured",
-                    None => "fs_main",
-                },
-                targets: &[wgpu::ColorTargetState {
-                    format: TextureFormat::R32Float,
-                    color_blend: blend_add.clone(),
-                    alpha_blend: blend_add.clone(),
-                    write_mask: wgpu::ColorWrite::ALL,
-                }],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-        });
-
-        let texture: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: Extent3d {
-                width: accumulate.size.width,
-                height: accumulate.size.height,
-                depth: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: TextureFormat::R32Float,
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
-            label: Some(&accumulate.name),
-        });
-
-        let view: wgpu::TextureView = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        AccumulatePass {
-            pipeline,
-            bind_group,
-            view,
-            spec: accumulate.clone(),
-        }
-    };
-
-    let plan = plan_render(size);
-
-    let mut passes: Vec<AccumulatePass> = vec![];
-    for p in &plan.passes {
-        passes.push(make_accumulation_pass(p, passes.last()))
-    }
-
-    let last_pass = passes.last().unwrap();
-
-    let large_bind_group = make_bind_group(&last_pass, false);
-
-    let diffuse_bytes = include_bytes!("../images/gradient.png");
-    let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
-    let diffuse_rgba = diffuse_image.as_rgba8().unwrap();
-
-    use image::GenericImageView;
-    let dimensions = diffuse_image.dimensions();
-
-    let texture_size = wgpu::Extent3d {
-        width: dimensions.0,
-        height: dimensions.1,
-        depth: 1,
-    };
-
-    let diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
-        // All textures are stored as 3D, we represent our 2D texture
-        // by setting depth to 1.
-        size: texture_size,
-        mip_level_count: 1, // We'll talk about this a little later
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D1,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        // SAMPLED tells wgpu that we want to use this texture in shaders
-        // COPY_DST means that we want to copy data to this texture
-        usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
-        label: Some("diffuse_texture"),
-    });
-
-    queue.write_texture(
-        // Tells wgpu where to copy the pixel data
-        wgpu::TextureCopyView {
-            texture: &diffuse_texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-        },
-        // The actual pixel data
-        diffuse_rgba,
-        // The layout of the texture
-        wgpu::TextureDataLayout {
-            offset: 0,
-            bytes_per_row: 4 * dimensions.0,
-            rows_per_image: dimensions.1,
-        },
-        texture_size,
-    );
-
-    let diffuse_texture_view = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let diffuse_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Nearest,
-        mipmap_filter: wgpu::FilterMode::Nearest,
-        ..Default::default()
-    });
-
-    let gradient_bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D1,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler {
-                        comparison: false,
-                        filtering: true,
-                    },
-                    count: None,
-                },
-            ],
-            label: None,
-        });
-
-    let gradient_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &gradient_bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
-            },
-        ],
-        label: None,
-    });
-
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("postprocess pipeline"),
-        bind_group_layouts: &[&accumulation_bind_group_layout, &gradient_bind_group_layout],
-        push_constant_ranges: &[],
-    });
-
-    let postprocess_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("postprocess"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &postprocess_shader,
-            entry_point: "vs_main",
-            buffers: &[wgpu::VertexBufferLayout {
-                array_stride: 2 * 2 * 4,
-                step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float2, 1 => Float2],
-            }],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &postprocess_shader,
-            entry_point: "fs_main",
-            targets: &[wgpu::ColorTargetState {
-                format: swapchain_format,
-                color_blend: blend_replace.clone(),
-                alpha_blend: blend_replace.clone(),
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-    });
-
-    let mut sc_desc = wgpu::SwapChainDescriptor {
-        usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-        format: swapchain_format,
-        width: size.width,
-        height: size.height,
-        present_mode: wgpu::PresentMode::Fifo, // Mailbox
-    };
-
-    let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
-
-    event_loop.run(move |event, _, control_flow| {
-        // Have the closure take ownership of the resources.
-        // `event_loop.run` never returns, therefore we must do this to ensure
-        // the resources are properly cleaned up.
-        let _ = (&instance, &adapter, &shader, &passes, &postprocess_shader);
-
-        *control_flow = ControlFlow::Wait;
-        match event {
-            Event::WindowEvent {
-                event: WindowEvent::Resized(size),
-                ..
-            } => {
-                // Recreate the swap chain with the new size
-                sc_desc.width = size.width;
-                sc_desc.height = size.height;
-                swap_chain = device.create_swap_chain(&surface, &sc_desc);
-            }
-
-            Event::WindowEvent {
-                event: WindowEvent::CursorMoved { position, .. },
-                ..
-            } => {
-                let size = window.inner_size();
-                let new_scene = SceneState {
-                    cursor: Point2::new(
-                        f64::from(position.x) / f64::from(size.width) * 2.0 - 1.0,
-                        f64::from(position.y) / f64::from(size.height) * 2.0 - 1.0,
-                    ),
-                };
-                if new_scene != scene {
-                    scene = new_scene;
-                    window.request_redraw();
-                }
-            }
-
-            Event::RedrawRequested(_) => {
-                let frame = swap_chain
-                    .get_current_frame()
-                    .expect("Failed to acquire next swap chain texture")
-                    .output;
-
-                {
-                    let root: Root =
-                        get_state([scene.cursor.x + 1.0, scene.cursor.y + 1.0], [2.0, 2.0]);
-
-                    let mut mesh_cache: HashMap<u32, MeshData> = HashMap::new();
-
-                    let build_mesh_data = |levels: &u32| {
-                        let vertexes = build_mesh(&root, *levels);
-                        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Vertex Buffer"),
-                            contents: bytemuck::cast_slice(&vertexes),
-                            usage: wgpu::BufferUsage::VERTEX,
-                        });
-                        MeshData {
-                            count: vertexes.len(),
-                            buffer,
-                        }
-                    };
-
-                    let mut instance_cache: HashMap<u32, MeshData> = HashMap::new();
-
-                    let build_instance_data = |levels: &u32| {
-                        let instances = build_instances(&root, *levels);
-                        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Instance Buffer"),
-                            contents: bytemuck::cast_slice(&instances),
-                            usage: wgpu::BufferUsage::VERTEX,
-                        });
-                        MeshData {
-                            count: instances.len(),
-                            buffer,
-                        }
-                    };
-
-                    // Draw main pass
-
-                    let mut encoder: wgpu::CommandEncoder = device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-                    {
-                        for p in &passes {
-                            let vertex_data = mesh_cache
-                                .entry(p.spec.mesh_levels)
-                                .or_insert_with_key(build_mesh_data);
-                            let instance_data = instance_cache
-                                .entry(p.spec.instance_levels)
-                                .or_insert_with_key(build_instance_data);
-
-                            let mut small_render_pass = apply_pass(&mut encoder, p);
-                            small_render_pass.set_vertex_buffer(0, instance_data.buffer.slice(..));
-                            small_render_pass.set_vertex_buffer(1, vertex_data.buffer.slice(..));
-                            small_render_pass.draw(
-                                0..(vertex_data.count as u32),
-                                0..(instance_data.count as u32),
-                            );
-                        }
-
-                        let quad_vertexes = build_quad();
-                        let quad_buf =
-                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Quad Vertex Buffer"),
-                                contents: bytemuck::cast_slice(&quad_vertexes),
-                                usage: wgpu::BufferUsage::VERTEX,
-                            });
-                        {
-                            let mut postprocess_pass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("Postprocess render pass"),
-                                    color_attachments: &[
-                                        wgpu::RenderPassColorAttachmentDescriptor {
-                                            attachment: &frame.view,
-                                            resolve_target: None,
-                                            ops: wgpu::Operations {
-                                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                                store: true,
-                                            },
-                                        },
-                                    ],
-                                    depth_stencil_attachment: None,
-                                });
-
-                            postprocess_pass.set_pipeline(&postprocess_pipeline);
-                            postprocess_pass.set_bind_group(0, &large_bind_group, &[]);
-                            postprocess_pass.set_bind_group(1, &gradient_bind_group, &[]);
-                            postprocess_pass.set_vertex_buffer(0, quad_buf.slice(..));
-                            postprocess_pass.draw(0..(quad_vertexes.len() as u32), 0..1);
-                        }
-                    }
-
-                    queue.submit(Some(encoder.finish()));
-                }
-
-                frame_count += 1;
-                if frame_count % 100 == 0 {
-                    let elapsed = started.elapsed();
-                    log::error!(
-                        "Frame Time: {:?}. FPS: {:.3}",
-                        elapsed / frame_count as u32,
-                        frame_count as f64 / elapsed.as_secs_f64()
-                    );
-                    started = std::time::Instant::now();
-                    frame_count = 0;
-                }
-            }
-            // Event::MainEventsCleared => {
-            //     window.request_redraw(); // Enable to busy loop
-            // }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => *control_flow = ControlFlow::Exit,
-            _ => {}
-        }
-    });
 }
 
 fn apply_pass<'b>(
@@ -632,4 +522,100 @@ fn apply_pass<'b>(
         None => {}
     };
     render_pass
+}
+
+impl ParametricScene<(&PlaneRendererData, &SceneFrame)> for SizePlanRenderer {
+    fn render(&mut self, data: (&PlaneRendererData, &SceneFrame)) {
+        let scene = data.1;
+
+        let render_data = data.0;
+        let device = &render_data.device;
+        let queue = &render_data.queue;
+
+        let mut mesh_cache: HashMap<u32, MeshData> = HashMap::new();
+
+        let root = get_state(
+            [scene.state.cursor.x + 1.0, scene.state.cursor.y + 1.0],
+            [2.0, 2.0],
+        );
+
+        let build_mesh_data = |levels: &u32| {
+            let vertexes = build_mesh(&root, *levels);
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(&vertexes),
+                usage: wgpu::BufferUsage::VERTEX,
+            });
+            MeshData {
+                count: vertexes.len(),
+                buffer,
+            }
+        };
+
+        let mut instance_cache: HashMap<u32, MeshData> = HashMap::new();
+
+        let build_instance_data = |levels: &u32| {
+            let instances = build_instances(&root, *levels);
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instances),
+                usage: wgpu::BufferUsage::VERTEX,
+            });
+            MeshData {
+                count: instances.len(),
+                buffer,
+            }
+        };
+
+        // Draw main pass
+        let mut encoder: wgpu::CommandEncoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            for p in &self.passes {
+                let vertex_data = mesh_cache
+                    .entry(p.spec.mesh_levels)
+                    .or_insert_with_key(build_mesh_data);
+                let instance_data = instance_cache
+                    .entry(p.spec.instance_levels)
+                    .or_insert_with_key(build_instance_data);
+
+                let mut small_render_pass = apply_pass(&mut encoder, p);
+                small_render_pass.set_vertex_buffer(0, instance_data.buffer.slice(..));
+                small_render_pass.set_vertex_buffer(1, vertex_data.buffer.slice(..));
+                small_render_pass.draw(
+                    0..(vertex_data.count as u32),
+                    0..(instance_data.count as u32),
+                );
+            }
+
+            let quad_vertexes = build_quad();
+            let quad_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Quad Vertex Buffer"),
+                contents: bytemuck::cast_slice(&quad_vertexes),
+                usage: wgpu::BufferUsage::VERTEX,
+            });
+            {
+                let mut postprocess_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Postprocess render pass"),
+                    color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                        attachment: &scene.frame.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: true,
+                        },
+                    }],
+                    depth_stencil_attachment: None,
+                });
+
+                postprocess_pass.set_pipeline(&self.postprocess_pipeline);
+                postprocess_pass.set_bind_group(0, &self.large_bind_group, &[]);
+                postprocess_pass.set_bind_group(1, &render_data.gradient_bind_group, &[]);
+                postprocess_pass.set_vertex_buffer(0, quad_buf.slice(..));
+                postprocess_pass.draw(0..(quad_vertexes.len() as u32), 0..1);
+            }
+        }
+
+        queue.submit(Some(encoder.finish()));
+    }
 }
