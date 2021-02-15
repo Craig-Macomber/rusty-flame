@@ -24,7 +24,7 @@ pub trait BoundedState<'a>: State<'a> {
     fn get_bounds(&self) -> Self::B {
         let mut b = Self::B::origin();
         // Starting with too few levels can diverge to infinity for large scale factors
-        for level in 2..6 {
+        for level in 2..5 {
             let b_new = fixed_point::iterate(b, |input_bounds: &Self::B| {
                 let mut b2: Option<Self::B> = None;
                 self.process_levels(level, &mut |s| {
@@ -199,9 +199,7 @@ mod tests {
                 })
                 .collect::<Vec<Affine2<f64>>>();
 
-            let root = Root::new(storage);
-
-            let bounds = checked_bounds(&root.get_state());
+            let bounds = checked_bounds(&AffineState::new(Affine2::<f64>::identity(), &storage));
             assert!(bounds.contains(&Rect {
                 min: Point2::new(-0.3, -0.3),
                 max: Point2::new(0.3, 0.3)

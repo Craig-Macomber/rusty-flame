@@ -18,7 +18,3 @@ wgpu-subscriber = "0.1.0"
 
 [patch.crates-io]
 naga = { git = "https://github.com/gfx-rs/naga" }
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-path = "./src/main.rs"
