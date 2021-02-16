@@ -14,9 +14,10 @@ use winit::{
 };
 mod fixed_point;
 mod flame;
-pub mod geometry;
+mod geometry;
 mod mesh;
-pub mod wgpu_render;
+mod plan;
+mod wgpu_render;
 
 pub fn main() {
     let event_loop = EventLoop::new();
@@ -143,7 +144,6 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                 sc_desc.width = size.width;
                 sc_desc.height = size.height;
                 swap_chain = renderer.data.device.create_swap_chain(&surface, &sc_desc);
-                log::error!("resize");
             }
 
             Event::WindowEvent {
