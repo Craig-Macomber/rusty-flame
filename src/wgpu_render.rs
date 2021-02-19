@@ -18,7 +18,7 @@ pub struct SceneFrame {
     pub frame: wgpu::SwapChainTexture,
 }
 
-/// Efficiently renders a seen as a parameter changes.
+/// Efficiently renders a scene as a parameter changes.
 pub trait ParametricScene<T> {
     fn render(&mut self, t: T);
 }
