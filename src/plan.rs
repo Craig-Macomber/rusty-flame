@@ -1,6 +1,6 @@
 use winit::dpi::PhysicalSize;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Accumulate {
     pub instance_levels: u32,
     pub mesh_levels: u32,
