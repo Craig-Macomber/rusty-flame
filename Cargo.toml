@@ -13,6 +13,7 @@ winit = { version = "0.24.0", features = ["web-sys"] }
 pollster = "0.2.1"
 bytemuck = { version = "1.5.1", features = ["derive"] }
 image = "0.23.13"
+salsa = "0.16.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wgpu-subscriber = "0.1.0"

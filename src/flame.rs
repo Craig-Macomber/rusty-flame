@@ -83,11 +83,14 @@ impl<'a> State<'a> for AffineState<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Root {
     storage: Vec<Affine2<f64>>,
     pub bounds: Rect,
 }
+
+/// NaN is invalid in all the floats here, so Eq is fine.
+impl Eq for Root {}
 
 impl Root {
     pub fn new(storage: Vec<Affine2<f64>>) -> Root {

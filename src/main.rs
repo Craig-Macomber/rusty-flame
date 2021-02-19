@@ -2,9 +2,11 @@
 
 extern crate nalgebra as na;
 
+use std::rc::Rc;
+
 use crate::flame::Root;
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
-use wgpu_render::{ParametricScene, PlanRenderer, SceneFrame, SizedScene};
+use wgpu_render::{render, DebugIt, Renderer};
 use winit::{
     dpi::{PhysicalSize, Size},
     event::{Event, WindowEvent},
@@ -84,9 +86,6 @@ pub struct SceneState {
 }
 
 pub async fn run(event_loop: EventLoop<()>, window: Window) {
-    let mut scene = SceneState {
-        cursor: na::Point2::new(0.0, 0.0),
-    };
     let mut started = std::time::Instant::now();
     let mut frame_count = 0u64;
 
@@ -126,7 +125,13 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
     };
 
     let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
-    let mut renderer = PlanRenderer::new(device, queue, swapchain_format);
+
+    let mut db = wgpu_render::DatabaseStruct::default();
+    db.set_cursor((), [0.0, 0.0]);
+    db.set_size_with_durability((), size, salsa::Durability::HIGH);
+    db.set_device_with_durability((), Rc::new(device), salsa::Durability::HIGH);
+    db.set_queue_with_durability((), Rc::new(queue), salsa::Durability::HIGH);
+    db.set_swapchain_format_with_durability((), DebugIt(swapchain_format), salsa::Durability::HIGH);
 
     event_loop.run(move |event, _, control_flow| {
         // Have the closure take ownership of the resources.
@@ -143,7 +148,9 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                 // Recreate the swap chain with the new size
                 sc_desc.width = size.width;
                 sc_desc.height = size.height;
-                swap_chain = renderer.data.device.create_swap_chain(&surface, &sc_desc);
+                swap_chain = db.device(()).create_swap_chain(&surface, &sc_desc);
+                db.set_size_with_durability((), size, salsa::Durability::HIGH);
+                window.request_redraw();
             }
 
             Event::WindowEvent {
@@ -151,31 +158,24 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                 ..
             } => {
                 let size = window.inner_size();
-                let new_scene = SceneState {
-                    cursor: Point2::new(
+                db.set_cursor(
+                    (),
+                    [
                         f64::from(position.x) / f64::from(size.width),
                         f64::from(position.y) / f64::from(size.height),
-                    ),
-                };
-                if new_scene != scene {
-                    scene = new_scene;
-                    window.request_redraw();
-                }
+                    ],
+                );
+                window.request_redraw();
             }
 
             Event::RedrawRequested(_) => {
-                let frame = swap_chain
-                    .get_current_frame()
-                    .expect("Failed to acquire next swap chain texture")
-                    .output;
-
-                let root = get_state([scene.cursor.x, scene.cursor.y]);
-
-                renderer.render(&SizedScene {
-                    scene: SceneFrame { root, frame },
-                    size,
-                });
-
+                render(
+                    &db,
+                    &swap_chain
+                        .get_current_frame()
+                        .expect("Failed to acquire next swap chain texture")
+                        .output,
+                );
                 frame_count += 1;
                 if frame_count % 100 == 0 {
                     let elapsed = started.elapsed();
