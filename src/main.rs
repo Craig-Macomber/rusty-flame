@@ -54,12 +54,13 @@ pub fn main() {
 const MIN_SCALE: f64 = 0.5;
 const MAX_SCALE: f64 = 0.8;
 
-pub fn get_state(cursor: [f64; 2], draw_size: [f64; 2]) -> Root {
+pub fn get_state(cursor: [f64; 2]) -> Root {
+    dbg!(cursor);
     let n: u32 = 3;
     let shift = 0.5;
     let max_grow = MAX_SCALE - MIN_SCALE;
-    let x = f64::min(1.0, f64::max(0.0, (cursor[0] as f64) / draw_size[0]));
-    let y = f64::min(1.0, f64::max(0.0, (cursor[1] as f64) / draw_size[1]));
+    let x = f64::min(1.0, f64::max(0.0, cursor[0] as f64));
+    let y = f64::min(1.0, f64::max(0.0, cursor[1] as f64));
     let scale = MIN_SCALE + y * max_grow;
     let sm = Similarity2::from_scaling(scale);
 
@@ -153,8 +154,8 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                 let size = window.inner_size();
                 let new_scene = SceneState {
                     cursor: Point2::new(
-                        f64::from(position.x) / f64::from(size.width) * 2.0 - 1.0,
-                        f64::from(position.y) / f64::from(size.height) * 2.0 - 1.0,
+                        f64::from(position.x) / f64::from(size.width),
+                        f64::from(position.y) / f64::from(size.height),
                     ),
                 };
                 if new_scene != scene {
@@ -169,11 +170,10 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                     .expect("Failed to acquire next swap chain texture")
                     .output;
 
+                let root = get_state([scene.cursor.x, scene.cursor.y]);
+
                 renderer.render(&SizedScene {
-                    scene: SceneFrame {
-                        state: scene,
-                        frame,
-                    },
+                    scene: SceneFrame { root, frame },
                     size,
                 });
 

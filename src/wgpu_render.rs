@@ -6,15 +6,14 @@ use wgpu::{
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    get_state,
+    flame::Root,
     mesh::{build_instances, build_mesh, build_quad},
     plan::{plan_render, Accumulate},
-    SceneState,
 };
 
 #[derive(Debug)]
 pub struct SceneFrame {
-    pub state: SceneState,
+    pub root: Root,
     pub frame: wgpu::SwapChainTexture,
 }
 
@@ -468,10 +467,7 @@ impl ParametricScene<(&PlaneRendererData, &SceneFrame)> for SizePlanRenderer {
 
         let mut mesh_cache: HashMap<u32, MeshData> = HashMap::new();
 
-        let root = get_state(
-            [scene.state.cursor.x + 1.0, scene.state.cursor.y + 1.0],
-            [2.0, 2.0],
-        );
+        let root = &scene.root;
 
         let build_mesh_data = |levels: &u32| {
             let vertexes = build_mesh(&root, *levels);
