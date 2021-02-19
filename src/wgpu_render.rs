@@ -1,5 +1,5 @@
 use bytemuck::Pod;
-use std::{borrow::Cow, rc::Rc};
+use std::{borrow::Cow, ops::Deref, rc::Rc};
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Extent3d, Queue, ShaderModule,
     TextureFormat,
@@ -63,6 +63,22 @@ impl<T> PartialEq for PtrRc<T> {
     }
 }
 
+impl<T> Deref for PtrRc<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> Deref for DebugIt<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl<T> Eq for PtrRc<T> {}
 
 ///////////////////////////////////////////////////////////////////////////
@@ -123,8 +139,8 @@ fn data(db: &dyn Renderer, (): ()) -> PtrRc<PlaneRendererData> {
 }
 
 fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
-    let device = &db.device(());
-    let data = &*db.data(()).0;
+    let device = db.device(());
+    let data = db.data(());
     let size = db.size(());
 
     let accumulation_bind_group_layout =
@@ -335,7 +351,7 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
         passes,
         large_bind_group,
         postprocess_pipeline,
-        quad: MeshData::new(device, &build_quad(), "Quad Vertex Buffer"),
+        quad: MeshData::new(&device, &build_quad(), "Quad Vertex Buffer"),
     }))
 }
 
@@ -343,7 +359,7 @@ impl PlaneRendererData {
     fn new(db: &dyn Renderer) -> Self {
         let device = db.device(());
         let queue = db.queue(());
-        let swapchain_format = db.swapchain_format(()).0;
+        let swapchain_format = *db.swapchain_format(());
 
         // Load the shaders from disk
         let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
@@ -496,9 +512,9 @@ impl MeshData {
 }
 
 pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
-    let render_data = &db.data(()).0;
-    let device = &db.device(());
-    let plan = db.sized_plan(()).0;
+    let render_data = db.data(());
+    let device = db.device(());
+    let plan = db.sized_plan(());
 
     // Draw main pass
     let mut encoder: wgpu::CommandEncoder =
@@ -525,9 +541,9 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
                 render_pass.set_bind_group(0, &b, &[])
             };
 
-            render_pass.set_vertex_buffer(0, instances.0.buffer.slice(..));
-            render_pass.set_vertex_buffer(1, vertexes.0.buffer.slice(..));
-            render_pass.draw(0..(vertexes.0.count as u32), 0..(instances.0.count as u32));
+            render_pass.set_vertex_buffer(0, instances.buffer.slice(..));
+            render_pass.set_vertex_buffer(1, vertexes.buffer.slice(..));
+            render_pass.draw(0..(vertexes.count as u32), 0..(instances.count as u32));
         }
 
         {
