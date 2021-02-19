@@ -55,7 +55,6 @@ const MIN_SCALE: f64 = 0.5;
 const MAX_SCALE: f64 = 0.8;
 
 pub fn get_state(cursor: [f64; 2]) -> Root {
-    dbg!(cursor);
     let n: u32 = 3;
     let shift = 0.5;
     let max_grow = MAX_SCALE - MIN_SCALE;

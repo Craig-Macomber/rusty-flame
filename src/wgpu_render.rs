@@ -1,4 +1,5 @@
-use std::{borrow::Cow, collections::HashMap};
+use bytemuck::Pod;
+use std::{borrow::Cow, collections::HashMap, hash::Hash};
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Extent3d, Queue, ShaderModule,
     TextureFormat,
@@ -49,6 +50,7 @@ struct SizePlanRenderer {
     passes: Vec<AccumulatePass>,
     postprocess_pipeline: wgpu::RenderPipeline,
     large_bind_group: wgpu::BindGroup,
+    quad: MeshData,
 }
 
 impl ParametricScene<&SizedScene> for PlanRenderer {
@@ -278,6 +280,7 @@ impl ParametricScene<&SizedScene> for PlanRenderer {
                 passes,
                 large_bind_group,
                 postprocess_pipeline,
+                quad: MeshData::new(device, &build_quad(), "Quad Vertex Buffer"),
             }
         });
 
@@ -433,97 +436,88 @@ struct MeshData {
     buffer: Buffer,
 }
 
-fn apply_pass<'b>(
-    encoder: &'b mut wgpu::CommandEncoder,
-    pass: &'b AccumulatePass,
-) -> wgpu::RenderPass<'b> {
-    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("Accumulate"),
-        color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-            attachment: &pass.view,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                store: true,
-            },
-        }],
-        depth_stencil_attachment: None,
-    });
-    render_pass.set_pipeline(&pass.pipeline);
-    match pass.bind_group {
-        Some(ref b) => render_pass.set_bind_group(0, &b, &[]),
-        None => {}
-    };
-    render_pass
+impl MeshData {
+    pub fn new<'a, T: Pod>(device: &'a Device, data: &Vec<T>, label: &'a str) -> MeshData {
+        MeshData {
+            count: data.len(),
+            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents: bytemuck::cast_slice(&data),
+                usage: wgpu::BufferUsage::VERTEX,
+            }),
+        }
+    }
+}
+
+/// Caches the result of Factory(Input) -> Output for various Inputs.
+struct Cache<Input, Output, Factory> {
+    map: HashMap<Input, Output>,
+    function: Factory,
+}
+
+impl<Input, Output, Factory> Cache<Input, Output, Factory>
+where
+    Factory: Fn(&Input) -> Output,
+    Input: Eq + Hash,
+{
+    pub fn new(f: Factory) -> Cache<Input, Output, Factory> {
+        Cache {
+            map: HashMap::new(),
+            function: f,
+        }
+    }
+
+    pub fn get(&mut self, k: Input) -> &Output {
+        self.map.entry(k).or_insert_with_key(&self.function)
+    }
 }
 
 impl ParametricScene<(&PlaneRendererData, &SceneFrame)> for SizePlanRenderer {
     fn render(&mut self, data: (&PlaneRendererData, &SceneFrame)) {
         let scene = data.1;
-
         let render_data = data.0;
         let device = &render_data.device;
-        let queue = &render_data.queue;
-
-        let mut mesh_cache: HashMap<u32, MeshData> = HashMap::new();
 
         let root = &scene.root;
 
-        let build_mesh_data = |levels: &u32| {
-            let vertexes = build_mesh(&root, *levels);
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(&vertexes),
-                usage: wgpu::BufferUsage::VERTEX,
-            });
-            MeshData {
-                count: vertexes.len(),
-                buffer,
-            }
-        };
+        let mut mesh_cache = Cache::new(|levels: &u32| {
+            MeshData::new(device, &build_mesh(&root, *levels), "Vertex Buffer")
+        });
 
-        let mut instance_cache: HashMap<u32, MeshData> = HashMap::new();
-
-        let build_instance_data = |levels: &u32| {
-            let instances = build_instances(&root, *levels);
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Instance Buffer"),
-                contents: bytemuck::cast_slice(&instances),
-                usage: wgpu::BufferUsage::VERTEX,
-            });
-            MeshData {
-                count: instances.len(),
-                buffer,
-            }
-        };
+        let mut instance_cache = Cache::new(|levels: &u32| {
+            MeshData::new(device, &build_instances(&root, *levels), "Instance Buffer")
+        });
 
         // Draw main pass
         let mut encoder: wgpu::CommandEncoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             for p in &self.passes {
-                let vertex_data = mesh_cache
-                    .entry(p.spec.mesh_levels)
-                    .or_insert_with_key(build_mesh_data);
-                let instance_data = instance_cache
-                    .entry(p.spec.instance_levels)
-                    .or_insert_with_key(build_instance_data);
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Accumulate"),
+                    color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                        attachment: &p.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: true,
+                        },
+                    }],
+                    depth_stencil_attachment: None,
+                });
+                render_pass.set_pipeline(&p.pipeline);
+                if let Some(ref b) = p.bind_group {
+                    render_pass.set_bind_group(0, &b, &[])
+                };
 
-                let mut small_render_pass = apply_pass(&mut encoder, p);
-                small_render_pass.set_vertex_buffer(0, instance_data.buffer.slice(..));
-                small_render_pass.set_vertex_buffer(1, vertex_data.buffer.slice(..));
-                small_render_pass.draw(
-                    0..(vertex_data.count as u32),
-                    0..(instance_data.count as u32),
-                );
+                let vertexes = mesh_cache.get(p.spec.mesh_levels);
+                let instances = instance_cache.get(p.spec.instance_levels);
+
+                render_pass.set_vertex_buffer(0, instances.buffer.slice(..));
+                render_pass.set_vertex_buffer(1, vertexes.buffer.slice(..));
+                render_pass.draw(0..(vertexes.count as u32), 0..(instances.count as u32));
             }
 
-            let quad_vertexes = build_quad();
-            let quad_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Quad Vertex Buffer"),
-                contents: bytemuck::cast_slice(&quad_vertexes),
-                usage: wgpu::BufferUsage::VERTEX,
-            });
             {
                 let mut postprocess_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Postprocess render pass"),
@@ -541,11 +535,12 @@ impl ParametricScene<(&PlaneRendererData, &SceneFrame)> for SizePlanRenderer {
                 postprocess_pass.set_pipeline(&self.postprocess_pipeline);
                 postprocess_pass.set_bind_group(0, &self.large_bind_group, &[]);
                 postprocess_pass.set_bind_group(1, &render_data.gradient_bind_group, &[]);
-                postprocess_pass.set_vertex_buffer(0, quad_buf.slice(..));
-                postprocess_pass.draw(0..(quad_vertexes.len() as u32), 0..1);
+                postprocess_pass.set_vertex_buffer(0, self.quad.buffer.slice(..));
+                postprocess_pass.set_bind_group(0, &self.large_bind_group, &[]);
+                postprocess_pass.draw(0..(self.quad.count as u32), 0..1);
             }
         }
 
-        queue.submit(Some(encoder.finish()));
+        render_data.queue.submit(Some(encoder.finish()));
     }
 }
