@@ -31,11 +31,8 @@ pub trait Renderer: salsa::Database {
     fn swapchain_format(&self, key: ()) -> DebugIt<TextureFormat>;
 
     fn data(&self, key: ()) -> PtrRc<PlaneRendererData>;
-
     fn sized_plan(&self, key: ()) -> PtrRc<SizePlanRenderer>;
-
     fn root(&self, key: ()) -> Root;
-
     fn mesh(&self, key: u32) -> PtrRc<MeshData>;
     fn instance(&self, key: u32) -> PtrRc<MeshData>;
 }
@@ -81,12 +78,8 @@ impl<T> Deref for DebugIt<T> {
 
 impl<T> Eq for PtrRc<T> {}
 
-///////////////////////////////////////////////////////////////////////////
-// Step 2. Define the queries.
-
 fn root(db: &dyn Renderer, (): ()) -> Root {
-    let cursor = db.cursor(());
-    get_state(cursor)
+    get_state(db.cursor(()))
 }
 
 fn mesh(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
@@ -105,8 +98,6 @@ fn instance(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
     )))
 }
 
-///////////////////////////////////////////////////////////////////////////
-// Step 3. Define the database struct
 #[salsa::database(RendererStorage)]
 #[derive(Default)]
 pub struct DatabaseStruct {
