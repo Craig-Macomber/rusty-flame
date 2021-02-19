@@ -1,5 +1,5 @@
 use bytemuck::Pod;
-use std::{borrow::Cow, collections::HashMap, hash::Hash, rc::Rc};
+use std::{borrow::Cow, rc::Rc};
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Extent3d, Queue, ShaderModule,
     TextureFormat,
@@ -35,6 +35,9 @@ pub trait Renderer: salsa::Database {
     fn sized_plan(&self, key: ()) -> PtrRc<SizePlanRenderer>;
 
     fn root(&self, key: ()) -> Root;
+
+    fn mesh(&self, key: u32) -> PtrRc<MeshData>;
+    fn instance(&self, key: u32) -> PtrRc<MeshData>;
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +71,22 @@ impl<T> Eq for PtrRc<T> {}
 fn root(db: &dyn Renderer, (): ()) -> Root {
     let cursor = db.cursor(());
     get_state(cursor)
+}
+
+fn mesh(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
+    PtrRc(Rc::new(MeshData::new(
+        &*db.device(()),
+        &build_mesh(&db.root(()), levels),
+        "Vertex Buffer",
+    )))
+}
+
+fn instance(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
+    PtrRc(Rc::new(MeshData::new(
+        &*db.device(()),
+        &build_instances(&db.root(()), levels),
+        "Instance Buffer",
+    )))
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -458,7 +477,7 @@ struct AccumulatePass {
 }
 
 #[derive(Debug)]
-struct MeshData {
+pub struct MeshData {
     count: usize,
     buffer: Buffer,
 }
@@ -476,48 +495,19 @@ impl MeshData {
     }
 }
 
-/// Caches the result of Factory(Input) -> Output for various Inputs.
-struct Cache<Input, Output, Factory> {
-    map: HashMap<Input, Output>,
-    function: Factory,
-}
-
-impl<Input, Output, Factory> Cache<Input, Output, Factory>
-where
-    Factory: Fn(&Input) -> Output,
-    Input: Eq + Hash,
-{
-    pub fn new(f: Factory) -> Cache<Input, Output, Factory> {
-        Cache {
-            map: HashMap::new(),
-            function: f,
-        }
-    }
-
-    pub fn get(&mut self, k: Input) -> &Output {
-        self.map.entry(k).or_insert_with_key(&self.function)
-    }
-}
-
 pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
     let render_data = &db.data(()).0;
     let device = &db.device(());
-    let root = db.root(());
     let plan = db.sized_plan(()).0;
-
-    let mut mesh_cache = Cache::new(|levels: &u32| {
-        MeshData::new(device, &build_mesh(&root, *levels), "Vertex Buffer")
-    });
-
-    let mut instance_cache = Cache::new(|levels: &u32| {
-        MeshData::new(device, &build_instances(&root, *levels), "Instance Buffer")
-    });
 
     // Draw main pass
     let mut encoder: wgpu::CommandEncoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     {
         for p in &plan.passes {
+            let vertexes = db.mesh(p.spec.mesh_levels);
+            let instances = db.instance(p.spec.instance_levels);
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Accumulate"),
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
@@ -535,12 +525,9 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
                 render_pass.set_bind_group(0, &b, &[])
             };
 
-            let vertexes = mesh_cache.get(p.spec.mesh_levels);
-            let instances = instance_cache.get(p.spec.instance_levels);
-
-            render_pass.set_vertex_buffer(0, instances.buffer.slice(..));
-            render_pass.set_vertex_buffer(1, vertexes.buffer.slice(..));
-            render_pass.draw(0..(vertexes.count as u32), 0..(instances.count as u32));
+            render_pass.set_vertex_buffer(0, instances.0.buffer.slice(..));
+            render_pass.set_vertex_buffer(1, vertexes.0.buffer.slice(..));
+            render_pass.draw(0..(vertexes.0.count as u32), 0..(instances.0.count as u32));
         }
 
         {
