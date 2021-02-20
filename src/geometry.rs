@@ -1,8 +1,10 @@
 use nalgebra::Point2;
+use winit::dpi::PhysicalSize;
 
 pub trait Bounds: PartialEq + Sized {
     fn union(a: &Self, b: &Self) -> Self;
     fn origin() -> Self;
+    fn is_infinite(&self) -> bool;
 
     fn contains(&self, other: &Self) -> bool {
         &Self::union(self, other) == self
@@ -16,6 +18,8 @@ pub struct Rect {
     pub min: Point2<f64>,
     pub max: Point2<f64>,
 }
+
+impl Eq for Rect {}
 
 impl Rect {
     pub fn corners(&self) -> [Point2<f64>; 4] {
@@ -63,6 +67,13 @@ impl Bounds for Rect {
             max: self.max + v,
         }
     }
+
+    fn is_infinite(&self) -> bool {
+        self.min.x == f64::NEG_INFINITY
+            || self.min.y == f64::NEG_INFINITY
+            || self.max.x == f64::INFINITY
+            || self.max.y == f64::INFINITY
+    }
 }
 
 pub fn letter_box(container: Rect, content: Rect) -> na::Affine2<f64> {
@@ -82,4 +93,17 @@ pub fn letter_box(container: Rect, content: Rect) -> na::Affine2<f64> {
                     + container.min.y / scale,
             ),
     )
+}
+
+pub fn box_to_box(container: Rect, content: Rect) -> na::Affine2<f64> {
+    let scale_x = container.width() / content.width();
+    let scale_y = container.height() / content.height();
+
+    let m = na::Matrix3::from_rows(&[
+        na::RowVector3::new(scale_x, 0.0, container.min.x - content.min.x * scale_x),
+        na::RowVector3::new(0.0, scale_y, container.min.y - content.min.y * scale_y),
+        na::RowVector3::new(0.0, 0.0, 1.0),
+    ]);
+
+    na::Affine2::from_matrix_unchecked(m)
 }

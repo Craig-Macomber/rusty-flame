@@ -9,6 +9,7 @@ pub struct Accumulate {
 }
 
 /// Scene independent plan. Redone on window resize.
+#[derive(Debug)]
 pub struct Plan {
     pub passes: Vec<Accumulate>,
 }

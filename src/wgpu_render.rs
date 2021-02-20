@@ -1,4 +1,6 @@
 use bytemuck::Pod;
+use geometry::Bounds;
+use num::rational::Ratio;
 use std::{borrow::Cow, ops::Deref, rc::Rc};
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Extent3d, Queue, ShaderModule,
@@ -7,10 +9,11 @@ use wgpu::{
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    flame::Root,
+    flame::{BoundedState, Root},
+    geometry::{self, box_to_box, Rect},
     get_state,
     mesh::{build_instances, build_mesh, build_quad},
-    plan::{plan_render, Accumulate},
+    plan::{plan_render, Accumulate, Plan},
 };
 
 #[salsa::query_group(RendererStorage)]
@@ -34,7 +37,9 @@ pub trait Renderer: salsa::Database {
     fn sized_plan(&self, key: ()) -> PtrRc<SizePlanRenderer>;
     fn root(&self, key: ()) -> Root;
     fn mesh(&self, key: u32) -> PtrRc<MeshData>;
-    fn instance(&self, key: u32) -> PtrRc<MeshData>;
+    fn instance(&self, key: InstanceKey) -> PtrRc<MeshData>;
+    fn bounds(&self, key: ()) -> Rect;
+    fn plan(&self, key: ()) -> PtrRc<Plan>;
 }
 
 #[derive(Debug, Clone)]
@@ -78,22 +83,80 @@ impl<T> Deref for DebugIt<T> {
 
 impl<T> Eq for PtrRc<T> {}
 
+impl<T> From<T> for PtrRc<T> {
+    fn from(t: T) -> Self {
+        PtrRc(Rc::new(t))
+    }
+}
+
 fn root(db: &dyn Renderer, (): ()) -> Root {
     get_state(db.cursor(()))
 }
 
+fn plan(db: &dyn Renderer, (): ()) -> PtrRc<Plan> {
+    plan_render(db.size(()).into()).into()
+}
+
+fn bounds(db: &dyn Renderer, (): ()) -> Rect {
+    let root = db.root(());
+    let passes = &db.plan(()).passes;
+
+    let levels = u32::min(
+        5,
+        passes
+            .iter()
+            .map(|pass| pass.mesh_levels + pass.instance_levels)
+            .sum(),
+    );
+
+    // This can be expensive, so cache it.
+    let bounds = root.get_state().get_bounds(levels);
+    if bounds.is_infinite() {
+        panic!("infinite bounds")
+    }
+    bounds
+}
+
 fn mesh(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
+    let bounds = db.bounds(());
     PtrRc(Rc::new(MeshData::new(
         &*db.device(()),
-        &build_mesh(&db.root(()), levels),
+        &build_mesh(&db.root(()), bounds, levels),
         "Vertex Buffer",
     )))
 }
 
-fn instance(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct InstanceKey {
+    levels: u32,
+    // width / height
+    aspect_ratio: Ratio<u32>,
+}
+
+fn instance(db: &dyn Renderer, key: InstanceKey) -> PtrRc<MeshData> {
+    let bounds = db.bounds(());
+
+    let window_rect = geometry::Rect {
+        min: na::Point2::new(0.0, 0.0),
+        max: na::Point2::new(
+            *key.aspect_ratio.numer() as f64,
+            *key.aspect_ratio.denom() as f64,
+        ),
+    };
+
+    let root_mat = geometry::letter_box(window_rect, bounds);
+
+    let rebox = box_to_box(
+        geometry::Rect {
+            min: na::Point2::new(-1.0, -1.0),
+            max: na::Point2::new(1.0, 1.0),
+        },
+        window_rect,
+    );
+
     PtrRc(Rc::new(MeshData::new(
         &*db.device(()),
-        &build_instances(&db.root(()), levels),
+        &build_instances(&db.root(()), rebox * root_mat, key.levels),
         "Instance Buffer",
     )))
 }
@@ -132,7 +195,6 @@ fn data(db: &dyn Renderer, (): ()) -> PtrRc<PlaneRendererData> {
 fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
     let device = db.device(());
     let data = db.data(());
-    let size = db.size(());
 
     let accumulation_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -290,7 +352,7 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
         }
     };
 
-    let plan = plan_render(size.into());
+    let plan = db.plan(());
 
     let mut passes: Vec<AccumulatePass> = vec![];
     for p in &plan.passes {
@@ -513,7 +575,10 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
     {
         for p in &plan.passes {
             let vertexes = db.mesh(p.spec.mesh_levels);
-            let instances = db.instance(p.spec.instance_levels);
+            let instances = db.instance(InstanceKey {
+                levels: p.spec.instance_levels,
+                aspect_ratio: Ratio::new(p.spec.size.width, p.spec.size.height),
+            });
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Accumulate"),

@@ -1,9 +1,9 @@
 use bytemuck::{Pod, Zeroable};
-use nalgebra::Matrix3;
+use nalgebra::{Affine2, Matrix3};
 
 use crate::{
     flame::{Root, State},
-    geometry,
+    geometry::{self, Rect},
 };
 
 #[repr(C)]
@@ -31,8 +31,8 @@ fn convert_point(p: &na::Point2<f64>) -> [f32; 2] {
 const TRIANGLE_INDEXES_FOR_QUAD: [usize; 6] = [0, 1, 2, 0, 2, 3];
 const UV_QUAD: [TextureCoordinate; 4] = [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]];
 
-pub(crate) fn build_mesh(root: &Root, levels: u32) -> Vec<Vertex> {
-    let corners = root.bounds.corners();
+pub(crate) fn build_mesh(root: &Root, quad: Rect, levels: u32) -> Vec<Vertex> {
+    let corners = quad.corners();
 
     let mut vertexes = vec![];
     root.get_state().process_levels(levels, &mut |state| {
@@ -47,10 +47,10 @@ pub(crate) fn build_mesh(root: &Root, levels: u32) -> Vec<Vertex> {
     vertexes
 }
 
-pub(crate) fn build_instances(root: &Root, levels: u32) -> Vec<Instance> {
+pub(crate) fn build_instances(root: &Root, root_mat: Affine2<f64>, levels: u32) -> Vec<Instance> {
     let mut instances: Vec<Instance> = vec![];
     root.get_state().process_levels(levels, &mut |state| {
-        let m: Matrix3<f64> = (root.root_mat() * state.mat).to_homogeneous();
+        let m: Matrix3<f64> = (root_mat * state.mat).to_homogeneous();
         let s = m.as_slice();
         instances.push(Instance {
             row0: [s[0] as f32, s[3] as f32, s[6] as f32, 0f32],

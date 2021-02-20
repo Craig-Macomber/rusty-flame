@@ -1,5 +1,5 @@
+use crate::fixed_point;
 use crate::geometry::{Bounds, Rect};
-use crate::{fixed_point, geometry};
 use nalgebra::Affine2;
 use reduce::Reduce;
 use std::fmt::Debug;
@@ -21,10 +21,13 @@ pub trait State<'a> {
 pub trait BoundedState<'a>: State<'a> {
     type B: Bounds + Debug;
 
-    fn get_bounds(&self) -> Self::B {
+    fn get_bounds(&self, levels: u32) -> Self::B {
         let mut b = Self::B::origin();
         // Starting with too few levels can diverge to infinity for large scale factors
-        for level in 2..5 {
+        for level in 0..=levels {
+            if b.is_infinite() {
+                b = Self::B::origin();
+            }
             let b_new = fixed_point::iterate(b, |input_bounds: &Self::B| {
                 let mut b2: Option<Self::B> = None;
                 self.process_levels(level, &mut |s| {
@@ -86,7 +89,6 @@ impl<'a> State<'a> for AffineState<'a> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Root {
     storage: Vec<Affine2<f64>>,
-    pub bounds: Rect,
 }
 
 /// NaN is invalid in all the floats here, so Eq is fine.
@@ -94,18 +96,7 @@ impl Eq for Root {}
 
 impl Root {
     pub fn new(storage: Vec<Affine2<f64>>) -> Root {
-        let bounds = AffineState::new(Affine2::<f64>::identity(), &storage).get_bounds(); // This can be expensive, so cache it.
-        Root { storage, bounds }
-    }
-
-    pub fn root_mat(&self) -> Affine2<f64> {
-        geometry::letter_box(
-            geometry::Rect {
-                min: na::Point2::new(-1.0, -1.0),
-                max: na::Point2::new(1.0, 1.0),
-            },
-            self.bounds,
-        )
+        Root { storage }
     }
 
     pub fn get_state(&self) -> AffineState {
@@ -119,7 +110,7 @@ mod tests {
     use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 
     fn checked_bounds(s: &AffineState) -> Rect {
-        let b = s.get_bounds();
+        let b = s.get_bounds(3);
         let corners = b.corners();
         let mut out = vec![];
         s.process_levels(5, &mut |s| {
