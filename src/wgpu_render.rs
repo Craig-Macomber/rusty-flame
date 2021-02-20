@@ -16,8 +16,8 @@ use crate::{
     plan::{plan_render, Accumulate, Plan},
 };
 
-#[salsa::query_group(RendererStorage)]
-pub trait Renderer: salsa::Database {
+#[salsa::query_group(InputStorage)]
+pub trait Inputs: salsa::Database {
     #[salsa::input]
     fn cursor(&self, key: ()) -> [f64; 2];
 
@@ -32,7 +32,10 @@ pub trait Renderer: salsa::Database {
 
     #[salsa::input]
     fn swapchain_format(&self, key: ()) -> DebugIt<TextureFormat>;
+}
 
+#[salsa::query_group(RendererStorage)]
+trait Renderer: Inputs {
     fn data(&self, key: ()) -> PtrRc<PlaneRendererData>;
     fn sized_plan(&self, key: ()) -> PtrRc<SizePlanRenderer>;
     fn root(&self, key: ()) -> Root;
@@ -46,7 +49,7 @@ pub trait Renderer: salsa::Database {
 pub struct DebugIt<T>(pub T);
 
 #[derive(Debug)]
-pub struct PtrRc<T>(Rc<T>);
+struct PtrRc<T>(Rc<T>);
 
 // TODO: why does derive clone not work for this?
 impl<T> Clone for PtrRc<T> {
@@ -127,9 +130,10 @@ fn mesh(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct InstanceKey {
+struct InstanceKey {
     levels: u32,
     // width / height
+    // TODO: use a uniform buffer for root transformation for better caching and to allow non-letterbox positioning of final pass.
     aspect_ratio: Ratio<u32>,
 }
 
@@ -161,7 +165,7 @@ fn instance(db: &dyn Renderer, key: InstanceKey) -> PtrRc<MeshData> {
     )))
 }
 
-#[salsa::database(RendererStorage)]
+#[salsa::database(RendererStorage, InputStorage)]
 #[derive(Default)]
 pub struct DatabaseStruct {
     storage: salsa::Storage<Self>,
@@ -171,7 +175,7 @@ impl salsa::Database for DatabaseStruct {}
 
 /// Non size dependent cached data
 #[derive(Debug)]
-pub struct PlaneRendererData {
+struct PlaneRendererData {
     shader: ShaderModule,
     postprocess_shader: ShaderModule,
     gradient_bind_group: wgpu::BindGroup,
@@ -181,7 +185,7 @@ pub struct PlaneRendererData {
 
 /// Size dependant data
 #[derive(Debug)]
-pub struct SizePlanRenderer {
+struct SizePlanRenderer {
     passes: Vec<AccumulatePass>,
     postprocess_pipeline: wgpu::RenderPipeline,
     large_bind_group: wgpu::BindGroup,
@@ -546,7 +550,7 @@ struct AccumulatePass {
 }
 
 #[derive(Debug)]
-pub struct MeshData {
+struct MeshData {
     count: usize,
     buffer: Buffer,
 }
@@ -623,6 +627,8 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
             postprocess_pass.set_bind_group(0, &plan.large_bind_group, &[]);
             postprocess_pass.draw(0..(plan.quad.count as u32), 0..1);
         }
+
+        // TODO: debug option to draw intermediate texture to screen at actual resolution
     }
 
     db.queue(()).submit(Some(encoder.finish()));

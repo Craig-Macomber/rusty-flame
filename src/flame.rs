@@ -25,21 +25,47 @@ pub trait BoundedState<'a>: State<'a> {
         let mut b = Self::B::origin();
         // Starting with too few levels can diverge to infinity for large scale factors
         for level in 0..=levels {
+            let mut count = 0;
             if b.is_infinite() {
                 b = Self::B::origin();
             }
-            let b_new = fixed_point::iterate(b, |input_bounds: &Self::B| {
-                let mut b2: Option<Self::B> = None;
-                self.process_levels(level, &mut |s| {
-                    let b3 = s.transform_bounds(input_bounds);
-                    b2 = Some(match &b2 {
-                        None => b3,
-                        Some(b4) => Self::B::union(&b4, &b3),
-                    })
-                });
+            let b_new = fixed_point::iterate_cmp(
+                b,
+                |before, after| {
+                    count += 1;
+                    // Running with lower level values is just an optimization.
+                    // If it its taking too long (ex: divergent with lower level value) early exit.
+                    if count > 10 && level != levels {
+                        return (after, true);
+                    }
 
-                b2.unwrap()
-            });
+                    // TODO: why, even with this trivially safe version can corners of the fractal go off screen?
+                    // let result = before == after;
+                    // (after, result)
+
+                    // First condition is for correctness (makes ure entire fractal is contained),
+                    // Second condition prevents termination while we are still making progress (shrinking bounds)
+                    if before.contains(&after) && after.grow(0.001).contains(&before) {
+                        (before, true)
+                    } else {
+                        // Grow by a tiny bit. This makes the test more conservative and should finish sooner.
+                        // Less than above grown to prevent getting stuck. (TODO: prove this won't get stuck)
+                        (after.grow(0.0001), false)
+                    }
+                },
+                |input_bounds: &Self::B| {
+                    let mut b2: Option<Self::B> = None;
+                    self.process_levels(level, &mut |s| {
+                        let b3 = s.transform_bounds(input_bounds);
+                        b2 = Some(match &b2 {
+                            None => b3,
+                            Some(b4) => Self::B::union(&b4, &b3),
+                        })
+                    });
+
+                    b2.unwrap()
+                },
+            );
             b = b_new;
         }
         b

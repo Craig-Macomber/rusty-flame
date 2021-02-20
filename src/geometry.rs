@@ -1,5 +1,5 @@
+use na::Vector2;
 use nalgebra::Point2;
-use winit::dpi::PhysicalSize;
 
 pub trait Bounds: PartialEq + Sized {
     fn union(a: &Self, b: &Self) -> Self;
@@ -61,7 +61,7 @@ impl Bounds for Rect {
     }
 
     fn grow(&self, portion: f64) -> Self {
-        let v = (self.max - self.min) * (portion / 2.0);
+        let v: Vector2<f64> = (self.max - self.min) * (portion / 2.0);
         Rect {
             min: self.min - v,
             max: self.max + v,

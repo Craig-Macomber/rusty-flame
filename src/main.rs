@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use crate::flame::Root;
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
-use wgpu_render::{render, DebugIt, Renderer};
+use wgpu_render::{render, DebugIt, Inputs};
 use winit::{
     dpi::{PhysicalSize, Size},
     event::{Event, WindowEvent},
@@ -14,9 +14,9 @@ use winit::{
     window::Window,
     window::WindowBuilder,
 };
-mod fixed_point;
+pub mod fixed_point;
 mod flame;
-mod geometry;
+pub mod geometry;
 mod mesh;
 mod plan;
 mod wgpu_render;
