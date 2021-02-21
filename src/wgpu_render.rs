@@ -145,6 +145,14 @@ pub struct DeviceData {
     pub accumulation_bind_group_layout: BindGroupLayout,
 }
 
+#[derive(Debug)]
+struct AccumulatePass {
+    pipeline: wgpu::RenderPipeline,
+    bind_group: Option<wgpu::BindGroup>,
+    view: wgpu::TextureView,
+    spec: Accumulate,
+}
+
 /// Size dependant data
 #[derive(Debug)]
 pub struct SizePlanRenderer {
@@ -338,14 +346,6 @@ fn data(db: &dyn Renderer, (): ()) -> PtrRc<DeviceData> {
         accumulation_bind_group_layout,
     }
     .into()
-}
-
-#[derive(Debug)]
-struct AccumulatePass {
-    pipeline: wgpu::RenderPipeline,
-    bind_group: Option<wgpu::BindGroup>,
-    view: wgpu::TextureView,
-    spec: Accumulate,
 }
 
 pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
