@@ -1,10 +1,13 @@
 use bytemuck::Pod;
 use geometry::Bounds;
 use num::rational::Ratio;
-use std::{borrow::Cow, ops::Deref, rc::Rc};
+use std::{borrow::Cow, rc::Rc};
 use wgpu::{
-    util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Extent3d, Queue, ShaderModule,
-    TextureFormat,
+    util::DeviceExt, AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+    BindGroupLayoutEntry, BindingResource, BindingType, Buffer, CommandEncoderDescriptor, Device,
+    Extent3d, FilterMode, PipelineLayoutDescriptor, Queue, SamplerDescriptor, ShaderModule,
+    ShaderModuleDescriptor, ShaderSource, ShaderStage, TextureDescriptor, TextureFormat,
+    TextureSampleType, TextureUsage, TextureViewDescriptor, TextureViewDimension,
 };
 use winit::dpi::PhysicalSize;
 
@@ -14,6 +17,7 @@ use crate::{
     get_state,
     mesh::{build_instances, build_mesh, build_quad},
     plan::{plan_render, Accumulate, Plan},
+    util_types::{DebugIt, PtrRc},
 };
 
 #[salsa::query_group(InputStorage)]
@@ -22,7 +26,7 @@ pub trait Inputs: salsa::Database {
     fn cursor(&self, key: ()) -> [f64; 2];
 
     #[salsa::input]
-    fn size(&self, key: ()) -> PhysicalSize<u32>;
+    fn window_size(&self, key: ()) -> PhysicalSize<u32>;
 
     #[salsa::input]
     fn device(&self, key: ()) -> Rc<Device>;
@@ -36,7 +40,7 @@ pub trait Inputs: salsa::Database {
 
 #[salsa::query_group(RendererStorage)]
 trait Renderer: Inputs {
-    fn data(&self, key: ()) -> PtrRc<PlaneRendererData>;
+    fn data(&self, key: ()) -> PtrRc<PlanRendererData>;
     fn sized_plan(&self, key: ()) -> PtrRc<SizePlanRenderer>;
     fn root(&self, key: ()) -> Root;
     fn mesh(&self, key: u32) -> PtrRc<MeshData>;
@@ -45,59 +49,12 @@ trait Renderer: Inputs {
     fn plan(&self, key: ()) -> PtrRc<Plan>;
 }
 
-#[derive(Debug, Clone)]
-pub struct DebugIt<T>(pub T);
-
-#[derive(Debug)]
-struct PtrRc<T>(Rc<T>);
-
-// TODO: why does derive clone not work for this?
-impl<T> Clone for PtrRc<T> {
-    fn clone(&self) -> Self {
-        PtrRc(self.0.clone())
-    }
-}
-
-impl<T> PartialEq for PtrRc<T> {
-    fn ne(&self, other: &Self) -> bool {
-        !Rc::ptr_eq(&self.0, &other.0)
-    }
-
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl<T> Deref for PtrRc<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> Deref for DebugIt<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> Eq for PtrRc<T> {}
-
-impl<T> From<T> for PtrRc<T> {
-    fn from(t: T) -> Self {
-        PtrRc(Rc::new(t))
-    }
-}
-
 fn root(db: &dyn Renderer, (): ()) -> Root {
     get_state(db.cursor(()))
 }
 
 fn plan(db: &dyn Renderer, (): ()) -> PtrRc<Plan> {
-    plan_render(db.size(()).into()).into()
+    plan_render(db.window_size(()).into()).into()
 }
 
 fn bounds(db: &dyn Renderer, (): ()) -> Rect {
@@ -122,11 +79,12 @@ fn bounds(db: &dyn Renderer, (): ()) -> Rect {
 
 fn mesh(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
     let bounds = db.bounds(());
-    PtrRc(Rc::new(MeshData::new(
+    MeshData::new(
         &*db.device(()),
         &build_mesh(&db.root(()), bounds, levels),
         "Vertex Buffer",
-    )))
+    )
+    .into()
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -158,11 +116,12 @@ fn instance(db: &dyn Renderer, key: InstanceKey) -> PtrRc<MeshData> {
         window_rect,
     );
 
-    PtrRc(Rc::new(MeshData::new(
+    MeshData::new(
         &*db.device(()),
         &build_instances(&db.root(()), rebox * root_mat, key.levels),
         "Instance Buffer",
-    )))
+    )
+    .into()
 }
 
 #[salsa::database(RendererStorage, InputStorage)]
@@ -175,12 +134,12 @@ impl salsa::Database for DatabaseStruct {}
 
 /// Non size dependent cached data
 #[derive(Debug)]
-struct PlaneRendererData {
+struct PlanRendererData {
     shader: ShaderModule,
     postprocess_shader: ShaderModule,
     gradient_bind_group: wgpu::BindGroup,
     gradient_bind_group_layout: BindGroupLayout,
-    swapchain_format: TextureFormat,
+    quad: MeshData,
 }
 
 /// Size dependant data
@@ -189,11 +148,6 @@ struct SizePlanRenderer {
     passes: Vec<AccumulatePass>,
     postprocess_pipeline: wgpu::RenderPipeline,
     large_bind_group: wgpu::BindGroup,
-    quad: MeshData,
-}
-
-fn data(db: &dyn Renderer, (): ()) -> PtrRc<PlaneRendererData> {
-    PtrRc(Rc::new(PlaneRendererData::new(db)))
 }
 
 fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
@@ -203,20 +157,20 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
     let accumulation_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                wgpu::BindGroupLayoutEntry {
+                BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Texture {
                         multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
                     },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
+                BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler {
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Sampler {
                         comparison: false,
                         filtering: true,
                     },
@@ -239,31 +193,31 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
     };
 
     // TODO: mipmap filtering and generation
-    let accumulation_sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+    let accumulation_sampler: wgpu::Sampler = device.create_sampler(&SamplerDescriptor {
         label: Some("accumulation sampler"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
+        mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Linear,
         ..Default::default()
     });
 
-    let nearest_sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+    let nearest_sampler: wgpu::Sampler = device.create_sampler(&SamplerDescriptor {
         label: Some("accumulation sampler"),
-        mag_filter: wgpu::FilterMode::Nearest,
-        min_filter: wgpu::FilterMode::Nearest,
+        mag_filter: FilterMode::Nearest,
+        min_filter: FilterMode::Nearest,
         ..Default::default()
     });
 
     let make_bind_group = |p: &AccumulatePass, filter: bool| -> BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+        device.create_bind_group(&BindGroupDescriptor {
             layout: &accumulation_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
+                BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&p.view),
+                    resource: BindingResource::TextureView(&p.view),
                 },
-                wgpu::BindGroupEntry {
+                BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(if filter {
+                    resource: BindingResource::Sampler(if filter {
                         &nearest_sampler
                     } else {
                         &accumulation_sampler
@@ -291,70 +245,69 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
         ],
     };
 
-    let make_accumulation_pass = |accumulate: &Accumulate,
-                                  previous: Option<&AccumulatePass>|
-     -> AccumulatePass {
-        // Create bind group
-        let bind_group = match previous {
-            Some(p) => Some(make_bind_group(p, true)),
-            None => None,
-        };
+    let make_accumulation_pass =
+        |accumulate: &Accumulate, previous: Option<&AccumulatePass>| -> AccumulatePass {
+            // Create bind group
+            let bind_group = match previous {
+                Some(p) => Some(make_bind_group(p, true)),
+                None => None,
+            };
 
-        let groups = &[&accumulation_bind_group_layout];
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("accumulation pipeline"),
-            bind_group_layouts: match bind_group {
-                Some(_) => groups,
-                None => &[],
-            },
-            push_constant_ranges: &[],
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(&accumulate.name),
-            layout: Some(&pipeline_layout),
-            vertex: vertex_shader.clone(),
-            fragment: Some(wgpu::FragmentState {
-                module: &data.shader,
-                entry_point: match previous {
-                    Some(_) => "fs_main_textured",
-                    None => "fs_main",
+            let groups = &[&accumulation_bind_group_layout];
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("accumulation pipeline"),
+                bind_group_layouts: match bind_group {
+                    Some(_) => groups,
+                    None => &[],
                 },
-                targets: &[wgpu::ColorTargetState {
-                    format: TextureFormat::R32Float,
-                    color_blend: blend_add.clone(),
-                    alpha_blend: blend_add.clone(),
-                    write_mask: wgpu::ColorWrite::ALL,
-                }],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-        });
+                push_constant_ranges: &[],
+            });
 
-        let texture: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: Extent3d {
-                width: accumulate.size.width,
-                height: accumulate.size.height,
-                depth: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: TextureFormat::R32Float,
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
-            label: Some(&accumulate.name),
-        });
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(&accumulate.name),
+                layout: Some(&pipeline_layout),
+                vertex: vertex_shader.clone(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &data.shader,
+                    entry_point: match previous {
+                        Some(_) => "fs_main_textured",
+                        None => "fs_main",
+                    },
+                    targets: &[wgpu::ColorTargetState {
+                        format: TextureFormat::R32Float,
+                        color_blend: blend_add.clone(),
+                        alpha_blend: blend_add.clone(),
+                        write_mask: wgpu::ColorWrite::ALL,
+                    }],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+            });
 
-        let view: wgpu::TextureView = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let texture: wgpu::Texture = device.create_texture(&TextureDescriptor {
+                size: Extent3d {
+                    width: accumulate.size.width,
+                    height: accumulate.size.height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: TextureFormat::R32Float,
+                usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED,
+                label: Some(&accumulate.name),
+            });
 
-        AccumulatePass {
-            pipeline,
-            bind_group,
-            view,
-            spec: accumulate.clone(),
-        }
-    };
+            let view: wgpu::TextureView = texture.create_view(&TextureViewDescriptor::default());
+
+            AccumulatePass {
+                pipeline,
+                bind_group,
+                view,
+                spec: accumulate.clone(),
+            }
+        };
 
     let plan = db.plan(());
 
@@ -367,7 +320,7 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
 
     let large_bind_group = make_bind_group(&last_pass, false);
 
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("postprocess pipeline"),
         bind_group_layouts: &[
             &accumulation_bind_group_layout,
@@ -393,7 +346,7 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
                 module: &data.postprocess_shader,
                 entry_point: "fs_main",
                 targets: &[wgpu::ColorTargetState {
-                    format: data.swapchain_format,
+                    format: *db.swapchain_format(()),
                     color_blend: blend_replace.clone(),
                     alpha_blend: blend_replace.clone(),
                     write_mask: wgpu::ColorWrite::ALL,
@@ -404,141 +357,132 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
             multisample: wgpu::MultisampleState::default(),
         });
 
-    PtrRc(Rc::new(SizePlanRenderer {
+    SizePlanRenderer {
         passes,
         large_bind_group,
         postprocess_pipeline,
-        quad: MeshData::new(&device, &build_quad(), "Quad Vertex Buffer"),
-    }))
+    }
+    .into()
 }
 
-impl PlaneRendererData {
-    fn new(db: &dyn Renderer) -> Self {
-        let device = db.device(());
-        let queue = db.queue(());
-        let swapchain_format = *db.swapchain_format(());
+fn data(db: &dyn Renderer, (): ()) -> PtrRc<PlanRendererData> {
+    let device = db.device(());
+    let queue = db.queue(());
 
-        // Load the shaders from disk
-        let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: Some("wgpu.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
-            flags: wgpu::ShaderFlags::all(),
-        });
+    // Load the shaders from disk
+    let shader = device.create_shader_module(&ShaderModuleDescriptor {
+        label: Some("wgpu.wgsl"),
+        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
+        flags: wgpu::ShaderFlags::all(),
+    });
 
-        let postprocess_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: Some("postprocess.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
-                "../shaders/postprocess.wgsl"
-            ))),
-            flags: wgpu::ShaderFlags::all(),
-        });
+    let postprocess_shader = device.create_shader_module(&ShaderModuleDescriptor {
+        label: Some("postprocess.wgsl"),
+        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/postprocess.wgsl"))),
+        flags: wgpu::ShaderFlags::all(),
+    });
 
-        let diffuse_bytes = include_bytes!("../images/gradient.png");
-        let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
-        let diffuse_rgba = diffuse_image.as_rgba8().unwrap();
+    let diffuse_bytes = include_bytes!("../images/gradient.png");
+    let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
+    let diffuse_rgba = diffuse_image.as_rgba8().unwrap();
 
-        use image::GenericImageView;
-        let dimensions = diffuse_image.dimensions();
+    use image::GenericImageView;
+    let dimensions = diffuse_image.dimensions();
 
-        let texture_size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
-            depth: 1,
-        };
+    let texture_size = wgpu::Extent3d {
+        width: dimensions.0,
+        height: dimensions.1,
+        depth: 1,
+    };
 
-        let diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
-            // All textures are stored as 3D, we represent our 2D texture
-            // by setting depth to 1.
-            size: texture_size,
-            mip_level_count: 1, // We'll talk about this a little later
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D1,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            // SAMPLED tells wgpu that we want to use this texture in shaders
-            // COPY_DST means that we want to copy data to this texture
-            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
-            label: Some("diffuse_texture"),
-        });
+    let diffuse_texture = device.create_texture(&TextureDescriptor {
+        size: texture_size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D1,
+        format: TextureFormat::Rgba8UnormSrgb,
+        usage: TextureUsage::SAMPLED | TextureUsage::COPY_DST,
+        label: Some("diffuse_texture"),
+    });
 
-        queue.write_texture(
-            // Tells wgpu where to copy the pixel data
-            wgpu::TextureCopyView {
-                texture: &diffuse_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-            },
-            // The actual pixel data
-            diffuse_rgba,
-            // The layout of the texture
-            wgpu::TextureDataLayout {
-                offset: 0,
-                bytes_per_row: 4 * dimensions.0,
-                rows_per_image: dimensions.1,
-            },
-            texture_size,
-        );
+    queue.write_texture(
+        // Tells wgpu where to copy the pixel data
+        wgpu::TextureCopyView {
+            texture: &diffuse_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+        },
+        // The actual pixel data
+        diffuse_rgba,
+        // The layout of the texture
+        wgpu::TextureDataLayout {
+            offset: 0,
+            bytes_per_row: 4 * dimensions.0,
+            rows_per_image: dimensions.1,
+        },
+        texture_size,
+    );
 
-        let diffuse_texture_view =
-            diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let diffuse_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
+    let diffuse_texture_view = diffuse_texture.create_view(&TextureViewDescriptor::default());
+    let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
+        address_mode_u: AddressMode::ClampToEdge,
+        address_mode_v: AddressMode::ClampToEdge,
+        address_mode_w: AddressMode::ClampToEdge,
+        mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Nearest,
+        mipmap_filter: FilterMode::Nearest,
+        ..Default::default()
+    });
 
-        let gradient_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStage::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D1,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStage::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler {
-                            comparison: false,
-                            filtering: true,
-                        },
-                        count: None,
-                    },
-                ],
-                label: None,
-            });
-
-        let gradient_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &gradient_bind_group_layout,
+    let gradient_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                wgpu::BindGroupEntry {
+                BindGroupLayoutEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Texture {
+                        multisampled: false,
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D1,
+                    },
+                    count: None,
                 },
-                wgpu::BindGroupEntry {
+                BindGroupLayoutEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
+                    count: None,
                 },
             ],
             label: None,
         });
 
-        Self {
-            shader,
-            postprocess_shader,
-            gradient_bind_group,
-            gradient_bind_group_layout,
-            swapchain_format,
-        }
+    let gradient_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        layout: &gradient_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&diffuse_texture_view),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::Sampler(&diffuse_sampler),
+            },
+        ],
+        label: None,
+    });
+
+    PlanRendererData {
+        shader,
+        postprocess_shader,
+        gradient_bind_group,
+        gradient_bind_group_layout,
+        quad: MeshData::new(&device, &build_quad(), "Quad Vertex Buffer"),
     }
+    .into()
 }
 
 #[derive(Debug)]
@@ -573,9 +517,7 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
     let device = db.device(());
     let plan = db.sized_plan(());
 
-    // Draw main pass
-    let mut encoder: wgpu::CommandEncoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
     {
         for p in &plan.passes {
             let vertexes = db.mesh(p.spec.mesh_levels);
@@ -623,9 +565,9 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
             postprocess_pass.set_pipeline(&plan.postprocess_pipeline);
             postprocess_pass.set_bind_group(0, &plan.large_bind_group, &[]);
             postprocess_pass.set_bind_group(1, &render_data.gradient_bind_group, &[]);
-            postprocess_pass.set_vertex_buffer(0, plan.quad.buffer.slice(..));
+            postprocess_pass.set_vertex_buffer(0, render_data.quad.buffer.slice(..));
             postprocess_pass.set_bind_group(0, &plan.large_bind_group, &[]);
-            postprocess_pass.draw(0..(plan.quad.count as u32), 0..1);
+            postprocess_pass.draw(0..(render_data.quad.count as u32), 0..1);
         }
 
         // TODO: debug option to draw intermediate texture to screen at actual resolution

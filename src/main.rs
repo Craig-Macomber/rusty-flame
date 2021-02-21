@@ -6,7 +6,8 @@ use std::rc::Rc;
 
 use crate::flame::Root;
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
-use wgpu_render::{render, DebugIt, Inputs};
+use util_types::DebugIt;
+use wgpu_render::{render, Inputs};
 use winit::{
     dpi::{PhysicalSize, Size},
     event::{Event, WindowEvent},
@@ -19,6 +20,7 @@ mod flame;
 pub mod geometry;
 mod mesh;
 mod plan;
+mod util_types;
 mod wgpu_render;
 
 pub fn main() {
@@ -80,12 +82,7 @@ pub fn get_state(cursor: [f64; 2]) -> Root {
     Root::new(va)
 }
 
-#[derive(PartialEq, Clone, Copy, Debug)]
-pub struct SceneState {
-    pub cursor: Point2<f64>,
-}
-
-pub async fn run(event_loop: EventLoop<()>, window: Window) {
+async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut started = std::time::Instant::now();
     let mut frame_count = 0u64;
 
@@ -128,7 +125,7 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let mut db = wgpu_render::DatabaseStruct::default();
     db.set_cursor((), [0.0, 0.0]);
-    db.set_size_with_durability((), size, salsa::Durability::HIGH);
+    db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
     db.set_device_with_durability((), Rc::new(device), salsa::Durability::HIGH);
     db.set_queue_with_durability((), Rc::new(queue), salsa::Durability::HIGH);
     db.set_swapchain_format_with_durability((), DebugIt(swapchain_format), salsa::Durability::HIGH);
@@ -149,7 +146,7 @@ pub async fn run(event_loop: EventLoop<()>, window: Window) {
                 sc_desc.width = size.width;
                 sc_desc.height = size.height;
                 swap_chain = db.device(()).create_swap_chain(&surface, &sc_desc);
-                db.set_size_with_durability((), size, salsa::Durability::HIGH);
+                db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
                 window.request_redraw();
             }
 
