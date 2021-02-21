@@ -48,7 +48,7 @@ pub trait Renderer: Inputs {
     fn instance(&self, key: InstanceKey) -> PtrRc<MeshData>;
     fn bounds(&self, key: ()) -> Rect;
     fn plan(&self, key: ()) -> PtrRc<Plan>;
-    fn postprocess_data(&self, key: ()) -> PtrRc<postprocess::PostProcessData>;
+    fn postprocess_data(&self, key: ()) -> PtrRc<postprocess::Data>;
 }
 
 fn root(db: &dyn Renderer, (): ()) -> Root {
@@ -59,7 +59,7 @@ fn plan(db: &dyn Renderer, (): ()) -> PtrRc<Plan> {
     plan_render(db.window_size(()).into()).into()
 }
 
-fn postprocess_data(db: &dyn Renderer, (): ()) -> PtrRc<postprocess::PostProcessData> {
+fn postprocess_data(db: &dyn Renderer, (): ()) -> PtrRc<postprocess::Data> {
     postprocess::data(db, ()).into()
 }
 

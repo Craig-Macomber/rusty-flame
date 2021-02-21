@@ -1,24 +1,23 @@
 use std::borrow::Cow;
 use wgpu::{
-    AddressMode, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry,
-    BindingResource, BindingType, FilterMode, PipelineLayoutDescriptor, SamplerDescriptor,
-    ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStage, TextureDescriptor,
-    TextureFormat, TextureSampleType, TextureUsage, TextureViewDescriptor, TextureViewDimension,
+    AddressMode, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BindingResource,
+    BindingType, FilterMode, PipelineLayoutDescriptor, SamplerDescriptor, ShaderModule,
+    ShaderModuleDescriptor, ShaderSource, ShaderStage, TextureDescriptor, TextureFormat,
+    TextureSampleType, TextureUsage, TextureViewDescriptor, TextureViewDimension,
 };
 
 use crate::{mesh::build_quad, render_common::MeshData, util_types::PtrRc, wgpu_render::Renderer};
 
 /// Device dependant, but otherwise constant data.
 #[derive(Debug)]
-pub struct PostProcessData {
+pub struct Data {
     shader: ShaderModule,
     gradient_bind_group: wgpu::BindGroup,
-    gradient_bind_group_layout: BindGroupLayout,
     quad: MeshData,
     pipeline: wgpu::RenderPipeline,
 }
 
-pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<PostProcessData> {
+pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<Data> {
     let device = db.device(());
     let queue = db.queue(());
     let data = db.data(());
@@ -53,15 +52,12 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<PostProcessData> {
     });
 
     queue.write_texture(
-        // Tells wgpu where to copy the pixel data
         wgpu::TextureCopyView {
             texture: &diffuse_texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
         },
-        // The actual pixel data
         diffuse_rgba,
-        // The layout of the texture
         wgpu::TextureDataLayout {
             offset: 0,
             bytes_per_row: 4 * dimensions.0,
@@ -164,10 +160,9 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<PostProcessData> {
         multisample: wgpu::MultisampleState::default(),
     });
 
-    PostProcessData {
+    Data {
         shader,
         gradient_bind_group,
-        gradient_bind_group_layout,
         quad: MeshData::new(&device, &build_quad(), "Quad Vertex Buffer"),
         pipeline,
     }
