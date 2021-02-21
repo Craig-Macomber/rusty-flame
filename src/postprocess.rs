@@ -28,12 +28,12 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<Data> {
         flags: wgpu::ShaderFlags::all(),
     });
 
-    let diffuse_bytes = include_bytes!("../images/gradient.png");
-    let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
-    let diffuse_rgba = diffuse_image.as_rgba8().unwrap();
+    let gradient_bytes = include_bytes!("../images/gradient.png");
+    let gradient_image = image::load_from_memory(gradient_bytes).unwrap();
+    let gradient_rgba = gradient_image.as_rgba8().unwrap();
 
     use image::GenericImageView;
-    let dimensions = diffuse_image.dimensions();
+    let dimensions = gradient_image.dimensions();
 
     let texture_size = wgpu::Extent3d {
         width: dimensions.0,
@@ -41,23 +41,23 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<Data> {
         depth: 1,
     };
 
-    let diffuse_texture = device.create_texture(&TextureDescriptor {
+    let gradient_texture = device.create_texture(&TextureDescriptor {
         size: texture_size,
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D1,
         format: TextureFormat::Rgba8UnormSrgb,
         usage: TextureUsage::SAMPLED | TextureUsage::COPY_DST,
-        label: Some("diffuse_texture"),
+        label: Some("gradient_texture"),
     });
 
     queue.write_texture(
         wgpu::TextureCopyView {
-            texture: &diffuse_texture,
+            texture: &gradient_texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
         },
-        diffuse_rgba,
+        gradient_rgba,
         wgpu::TextureDataLayout {
             offset: 0,
             bytes_per_row: 4 * dimensions.0,
@@ -66,14 +66,14 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<Data> {
         texture_size,
     );
 
-    let diffuse_texture_view = diffuse_texture.create_view(&TextureViewDescriptor::default());
-    let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
+    let gradient_texture_view = gradient_texture.create_view(&TextureViewDescriptor::default());
+    let gradient_sampler = device.create_sampler(&SamplerDescriptor {
         address_mode_u: AddressMode::ClampToEdge,
         address_mode_v: AddressMode::ClampToEdge,
         address_mode_w: AddressMode::ClampToEdge,
         mag_filter: FilterMode::Linear,
-        min_filter: FilterMode::Nearest,
-        mipmap_filter: FilterMode::Nearest,
+        min_filter: FilterMode::Linear,
+        mipmap_filter: FilterMode::Linear, // TODO: mip map gradient
         ..Default::default()
     });
 
@@ -108,11 +108,11 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<Data> {
         entries: &[
             BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::TextureView(&diffuse_texture_view),
+                resource: BindingResource::TextureView(&gradient_texture_view),
             },
             BindGroupEntry {
                 binding: 1,
-                resource: BindingResource::Sampler(&diffuse_sampler),
+                resource: BindingResource::Sampler(&gradient_sampler),
             },
         ],
         label: None,
@@ -174,13 +174,27 @@ pub fn render(
     frame: &wgpu::SwapChainTexture,
     encoder: &mut wgpu::CommandEncoder,
 ) {
-    let plan = db.sized_plan(());
+    postprocess(
+        db,
+        encoder,
+        &db.sized_plan(()).large_bind_group,
+        &frame.view,
+    );
+}
+
+/// Draws a source accumulation texture into dst with log density coloring
+fn postprocess(
+    db: &dyn Renderer,
+    encoder: &mut wgpu::CommandEncoder,
+    src: &wgpu::BindGroup,
+    dst: &wgpu::TextureView,
+) {
     let data = db.postprocess_data(());
 
     let mut postprocess_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Postprocess render pass"),
         color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-            attachment: &frame.view,
+            attachment: &dst,
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -191,7 +205,7 @@ pub fn render(
     });
 
     postprocess_pass.set_pipeline(&data.pipeline);
-    postprocess_pass.set_bind_group(0, &plan.large_bind_group, &[]);
+    postprocess_pass.set_bind_group(0, &src, &[]);
     postprocess_pass.set_bind_group(1, &data.gradient_bind_group, &[]);
     postprocess_pass.set_vertex_buffer(0, data.quad.buffer.slice(..));
     postprocess_pass.draw(0..(data.quad.count), 0..1);
