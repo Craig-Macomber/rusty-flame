@@ -169,21 +169,8 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<Data> {
     .into()
 }
 
-pub fn render(
-    db: &dyn Renderer,
-    frame: &wgpu::SwapChainTexture,
-    encoder: &mut wgpu::CommandEncoder,
-) {
-    postprocess(
-        db,
-        encoder,
-        &db.sized_plan(()).large_bind_group,
-        &frame.view,
-    );
-}
-
 /// Draws a source accumulation texture into dst with log density coloring
-fn postprocess(
+pub fn render(
     db: &dyn Renderer,
     encoder: &mut wgpu::CommandEncoder,
     src: &wgpu::BindGroup,

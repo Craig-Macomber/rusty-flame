@@ -42,7 +42,7 @@ pub trait Inputs: salsa::Database {
 #[salsa::query_group(RendererStorage)]
 pub trait Renderer: Inputs {
     fn data(&self, key: ()) -> PtrRc<DeviceData>;
-    fn sized_plan(&self, key: ()) -> PtrRc<SizePlanRenderer>;
+    fn accumulate_pass(&self, key: AccumulatePassKey) -> PtrRc<AccumulatePass>;
     fn root(&self, key: ()) -> Root;
     fn mesh(&self, key: u32) -> PtrRc<MeshData>;
     fn instance(&self, key: InstanceKey) -> PtrRc<MeshData>;
@@ -143,24 +143,148 @@ impl salsa::Database for DatabaseStruct {}
 pub struct DeviceData {
     shader: ShaderModule,
     pub accumulation_bind_group_layout: BindGroupLayout,
+    accumulation_sampler: wgpu::Sampler,
+    nearest_sampler: wgpu::Sampler,
 }
 
 #[derive(Debug)]
-struct AccumulatePass {
+pub struct AccumulatePass {
     pipeline: wgpu::RenderPipeline,
-    bind_group: Option<wgpu::BindGroup>,
+    output_bind_group: wgpu::BindGroup,
     view: wgpu::TextureView,
     spec: Accumulate,
+    smaller: Option<AccumulatePassKey>,
 }
 
-/// Size dependant data
-#[derive(Debug)]
-pub struct SizePlanRenderer {
-    passes: Vec<AccumulatePass>,
-    pub large_bind_group: wgpu::BindGroup,
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct AccumulatePassKey {
+    plans: Vec<Accumulate>, // TODO: avoid copying tail of vector on recursion?
+    filter: bool,
 }
 
-fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
+fn data(db: &dyn Renderer, (): ()) -> PtrRc<DeviceData> {
+    let device = db.device(());
+    DeviceData {
+        // Load the shaders from disk
+        shader: device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("wgpu.wgsl"),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
+            flags: wgpu::ShaderFlags::all(),
+        }),
+
+        accumulation_bind_group_layout: device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStage::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            sample_type: TextureSampleType::Float { filterable: true },
+                            view_dimension: TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStage::FRAGMENT,
+                        ty: BindingType::Sampler {
+                            comparison: false,
+                            filtering: true,
+                        },
+                        count: None,
+                    },
+                ],
+                label: None,
+            },
+        ),
+
+        // TODO: mipmap filtering and generation
+        accumulation_sampler: device.create_sampler(&SamplerDescriptor {
+            label: Some("accumulation sampler"),
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..Default::default()
+        }),
+
+        nearest_sampler: device.create_sampler(&SamplerDescriptor {
+            label: Some("nearest sampler"),
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            ..Default::default()
+        }),
+    }
+    .into()
+}
+
+impl AccumulatePass {
+    fn render(&self, db: &DatabaseStruct, encoder: &mut wgpu::CommandEncoder) -> &BindGroup {
+        let vertexes = db.mesh(self.spec.mesh_levels);
+        let instances = db.instance(InstanceKey {
+            levels: self.spec.instance_levels,
+            aspect_ratio: Ratio::new(self.spec.size.width, self.spec.size.height),
+        });
+
+        let smaller_pass = if let Some(b) = &self.smaller {
+            let inner = db.accumulate_pass(b.clone());
+            Some(inner)
+        } else {
+            None
+        };
+
+        let smaller = if let Some(b) = &smaller_pass {
+            Some(b.render(db, encoder))
+        } else {
+            None
+        };
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Accumulate"),
+            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                attachment: &self.view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: true,
+                },
+            }],
+            depth_stencil_attachment: None,
+        });
+        render_pass.set_pipeline(&self.pipeline);
+        if let Some(b) = &smaller {
+            render_pass.set_bind_group(0, &b, &[])
+        };
+
+        render_pass.set_vertex_buffer(0, instances.buffer.slice(..));
+        render_pass.set_vertex_buffer(1, vertexes.buffer.slice(..));
+        render_pass.draw(0..(vertexes.count), 0..(instances.count));
+        return &self.output_bind_group;
+    }
+}
+
+/// Returns a BindGroup for reading from the the output from the pass
+fn accumulate_pass(db: &dyn Renderer, key: AccumulatePassKey) -> PtrRc<AccumulatePass> {
+    if let Some((last, rest)) = key.plans.split_last() {
+        let smaller = if rest.len() != 0 {
+            Some(AccumulatePassKey {
+                filter: true,
+                plans: Vec::from(rest),
+            })
+        } else {
+            None
+        };
+        make_accumulation_pass(db, last.clone(), smaller, key.filter).into()
+    } else {
+        panic!("No render plan");
+    }
+}
+
+fn make_accumulation_pass(
+    db: &dyn Renderer,
+    accumulate: Accumulate,
+    smaller: Option<AccumulatePassKey>,
+    filter: bool,
+) -> AccumulatePass {
     let device = db.device(());
     let data = db.data(());
 
@@ -170,41 +294,12 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
         operation: wgpu::BlendOperation::Add,
     };
 
-    // TODO: mipmap filtering and generation
-    let accumulation_sampler: wgpu::Sampler = device.create_sampler(&SamplerDescriptor {
-        label: Some("accumulation sampler"),
-        mag_filter: FilterMode::Linear,
-        min_filter: FilterMode::Linear,
-        ..Default::default()
+    let groups = &[&data.accumulation_bind_group_layout];
+    let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: Some("accumulation pipeline"),
+        bind_group_layouts: if smaller.is_some() { groups } else { &[] },
+        push_constant_ranges: &[],
     });
-
-    let nearest_sampler: wgpu::Sampler = device.create_sampler(&SamplerDescriptor {
-        label: Some("nearest sampler"),
-        mag_filter: FilterMode::Nearest,
-        min_filter: FilterMode::Nearest,
-        ..Default::default()
-    });
-
-    let make_bind_group = |p: &AccumulatePass, filter: bool| -> BindGroup {
-        device.create_bind_group(&BindGroupDescriptor {
-            layout: &data.accumulation_bind_group_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::TextureView(&p.view),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::Sampler(if filter {
-                        &nearest_sampler
-                    } else {
-                        &accumulation_sampler
-                    }),
-                },
-            ],
-            label: None,
-        })
-    };
 
     let vertex_shader = wgpu::VertexState {
         module: &data.shader,
@@ -223,168 +318,85 @@ fn sized_plan(db: &dyn Renderer, (): ()) -> PtrRc<SizePlanRenderer> {
         ],
     };
 
-    let make_accumulation_pass =
-        |accumulate: &Accumulate, previous: Option<&AccumulatePass>| -> AccumulatePass {
-            // Create bind group
-            let bind_group = match previous {
-                Some(p) => Some(make_bind_group(p, true)),
-                None => None,
-            };
-
-            let groups = &[&data.accumulation_bind_group_layout];
-            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("accumulation pipeline"),
-                bind_group_layouts: match bind_group {
-                    Some(_) => groups,
-                    None => &[],
-                },
-                push_constant_ranges: &[],
-            });
-
-            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(&accumulate.name),
-                layout: Some(&pipeline_layout),
-                vertex: vertex_shader.clone(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &data.shader,
-                    entry_point: match previous {
-                        Some(_) => "fs_main_textured",
-                        None => "fs_main",
-                    },
-                    targets: &[wgpu::ColorTargetState {
-                        format: TextureFormat::R32Float,
-                        color_blend: blend_add.clone(),
-                        alpha_blend: blend_add.clone(),
-                        write_mask: wgpu::ColorWrite::ALL,
-                    }],
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-            });
-
-            let texture: wgpu::Texture = device.create_texture(&TextureDescriptor {
-                size: Extent3d {
-                    width: accumulate.size.width,
-                    height: accumulate.size.height,
-                    depth: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(&accumulate.name),
+        layout: Some(&pipeline_layout),
+        vertex: vertex_shader,
+        fragment: Some(wgpu::FragmentState {
+            module: &data.shader,
+            entry_point: if smaller.is_some() {
+                "fs_main_textured"
+            } else {
+                "fs_main"
+            },
+            targets: &[wgpu::ColorTargetState {
                 format: TextureFormat::R32Float,
-                usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED,
-                label: Some(&accumulate.name),
-            });
-
-            let view: wgpu::TextureView = texture.create_view(&TextureViewDescriptor::default());
-
-            AccumulatePass {
-                pipeline,
-                bind_group,
-                view,
-                spec: accumulate.clone(),
-            }
-        };
-
-    let plan = db.plan(());
-
-    let mut passes: Vec<AccumulatePass> = vec![];
-    for p in &plan.passes {
-        passes.push(make_accumulation_pass(p, passes.last()))
-    }
-
-    let last_pass = passes.last().unwrap();
-
-    let large_bind_group = make_bind_group(&last_pass, false);
-
-    SizePlanRenderer {
-        passes,
-        large_bind_group,
-    }
-    .into()
-}
-
-fn data(db: &dyn Renderer, (): ()) -> PtrRc<DeviceData> {
-    let device = db.device(());
-
-    // Load the shaders from disk
-    let shader = device.create_shader_module(&ShaderModuleDescriptor {
-        label: Some("wgpu.wgsl"),
-        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
-        flags: wgpu::ShaderFlags::all(),
+                color_blend: blend_add.clone(),
+                alpha_blend: blend_add.clone(),
+                write_mask: wgpu::ColorWrite::ALL,
+            }],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
     });
 
-    let accumulation_bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::Texture {
-                        multisampled: false,
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::Sampler {
-                        comparison: false,
-                        filtering: true,
-                    },
-                    count: None,
-                },
-            ],
-            label: None,
-        });
+    let texture: wgpu::Texture = device.create_texture(&TextureDescriptor {
+        size: Extent3d {
+            width: accumulate.size.width,
+            height: accumulate.size.height,
+            depth: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::R32Float,
+        usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED,
+        label: Some(&accumulate.name),
+    });
 
-    DeviceData {
-        shader,
-        accumulation_bind_group_layout,
+    let view: wgpu::TextureView = texture.create_view(&TextureViewDescriptor::default());
+
+    let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        layout: &data.accumulation_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&view),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::Sampler(if filter {
+                    &data.nearest_sampler
+                } else {
+                    &data.accumulation_sampler
+                }),
+            },
+        ],
+        label: None,
+    });
+
+    AccumulatePass {
+        pipeline,
+        view,
+        output_bind_group,
+        smaller,
+        spec: accumulate,
     }
-    .into()
 }
 
 pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
     let device = db.device(());
-    let plan = db.sized_plan(());
 
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
     {
-        for p in &plan.passes {
-            let vertexes = db.mesh(p.spec.mesh_levels);
-            let instances = db.instance(InstanceKey {
-                levels: p.spec.instance_levels,
-                aspect_ratio: Ratio::new(p.spec.size.width, p.spec.size.height),
-            });
-
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Accumulate"),
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: &p.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: true,
-                    },
-                }],
-                depth_stencil_attachment: None,
-            });
-            render_pass.set_pipeline(&p.pipeline);
-            if let Some(ref b) = p.bind_group {
-                render_pass.set_bind_group(0, &b, &[])
-            };
-
-            render_pass.set_vertex_buffer(0, instances.buffer.slice(..));
-            render_pass.set_vertex_buffer(1, vertexes.buffer.slice(..));
-            render_pass.draw(0..(vertexes.count), 0..(instances.count));
-        }
-
-        postprocess::render(db, frame, &mut encoder);
-
+        let plan = db.plan(());
+        let accumulate = db.accumulate_pass(AccumulatePassKey {
+            plans: plan.passes.clone(),
+            filter: false,
+        });
+        let bind_group = accumulate.render(db, &mut encoder);
+        postprocess::render(db, &mut encoder, bind_group, &frame.view);
         // TODO: debug option to draw intermediate texture to screen at actual resolution
     }
 
