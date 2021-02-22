@@ -15,6 +15,7 @@ use winit::{
     window::Window,
     window::WindowBuilder,
 };
+mod accumulate;
 pub mod fixed_point;
 mod flame;
 pub mod geometry;
