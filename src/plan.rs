@@ -23,8 +23,26 @@ pub fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
     Plan {
         passes: vec![
             Accumulate {
-                instance_levels: 6,
-                mesh_levels: 6,
+                instance_levels: 4,
+                mesh_levels: 4,
+                size: winit::dpi::PhysicalSize {
+                    width: 64,
+                    height: 64,
+                },
+                name: "XXSmall".to_owned(),
+            },
+            Accumulate {
+                instance_levels: 4,
+                mesh_levels: 4,
+                size: winit::dpi::PhysicalSize {
+                    width: 128,
+                    height: 128,
+                },
+                name: "XSmall".to_owned(),
+            },
+            Accumulate {
+                instance_levels: 2,
+                mesh_levels: 2,
                 size: winit::dpi::PhysicalSize {
                     width: SMALL_ACCUMULATION_BUFFER_SIZE,
                     height: SMALL_ACCUMULATION_BUFFER_SIZE,
@@ -32,8 +50,8 @@ pub fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
                 name: "Small".to_owned(),
             },
             Accumulate {
-                instance_levels: 4,
-                mesh_levels: 6,
+                instance_levels: 2,
+                mesh_levels: 2,
                 size: winit::dpi::PhysicalSize {
                     width: MID_ACCUMULATION_BUFFER_SIZE,
                     height: MID_ACCUMULATION_BUFFER_SIZE,
@@ -41,8 +59,8 @@ pub fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
                 name: "Mid".to_owned(),
             },
             Accumulate {
-                instance_levels: 4,
-                mesh_levels: 4,
+                instance_levels: 2,
+                mesh_levels: 2,
                 size: winit::dpi::PhysicalSize {
                     width: LARGE_ACCUMULATION_BUFFER_SIZE,
                     height: LARGE_ACCUMULATION_BUFFER_SIZE,
@@ -51,7 +69,7 @@ pub fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
             },
             Accumulate {
                 instance_levels: 2,
-                mesh_levels: 2,
+                mesh_levels: 1,
                 size: winit::dpi::PhysicalSize {
                     width: LARGE_ACCUMULATION_BUFFER_SIZE2,
                     height: LARGE_ACCUMULATION_BUFFER_SIZE2,
@@ -60,7 +78,7 @@ pub fn plan_render(size: winit::dpi::PhysicalSize<u32>) -> Plan {
             },
             Accumulate {
                 instance_levels: 2,
-                mesh_levels: 2,
+                mesh_levels: 1,
                 size,
                 name: "Main".to_owned(),
             },
