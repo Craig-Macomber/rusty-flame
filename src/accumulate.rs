@@ -74,16 +74,16 @@ pub struct DeviceData {
 }
 
 #[derive(Debug)]
-pub struct AccumulatePass {
+pub struct Pass {
     pipeline: wgpu::RenderPipeline,
     output_bind_group: wgpu::BindGroup,
     view: wgpu::TextureView,
     spec: Accumulate,
-    smaller: Option<AccumulatePassKey>,
+    smaller: Option<PassKey>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct AccumulatePassKey {
+pub struct PassKey {
     pub plans: Vec<Accumulate>, // TODO: avoid copying tail of vector on recursion?
     pub filter: bool,
 }
@@ -143,7 +143,7 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<DeviceData> {
     .into()
 }
 
-impl AccumulatePass {
+impl Pass {
     pub fn render(&self, db: &dyn Renderer, encoder: &mut wgpu::CommandEncoder) -> &BindGroup {
         let vertexes = db.mesh(self.spec.mesh_levels);
         let instances = db.instance(InstanceKey {
@@ -190,28 +190,28 @@ impl AccumulatePass {
 }
 
 /// Returns a BindGroup for reading from the the output from the pass
-pub fn accumulate_pass(db: &dyn Renderer, key: AccumulatePassKey) -> PtrRc<AccumulatePass> {
+pub fn pass(db: &dyn Renderer, key: PassKey) -> PtrRc<Pass> {
     if let Some((last, rest)) = key.plans.split_last() {
         let smaller = if rest.len() != 0 {
-            Some(AccumulatePassKey {
+            Some(PassKey {
                 filter: true,
                 plans: Vec::from(rest),
             })
         } else {
             None
         };
-        make_accumulation_pass(db, last.clone(), smaller, key.filter).into()
+        make_pass(db, last.clone(), smaller, key.filter).into()
     } else {
         panic!("No render plan");
     }
 }
 
-fn make_accumulation_pass(
+fn make_pass(
     db: &dyn Renderer,
     accumulate: Accumulate,
-    smaller: Option<AccumulatePassKey>,
+    smaller: Option<PassKey>,
     filter: bool,
-) -> AccumulatePass {
+) -> Pass {
     let device = db.device(());
     let data = db.data(());
 
@@ -303,7 +303,7 @@ fn make_accumulation_pass(
         label: None,
     });
 
-    AccumulatePass {
+    Pass {
         pipeline,
         view,
         output_bind_group,

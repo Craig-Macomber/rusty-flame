@@ -35,10 +35,7 @@ pub trait Inputs: salsa::Database {
 #[salsa::query_group(RendererStorage)]
 pub trait Renderer: Inputs {
     fn data(&self, key: ()) -> PtrRc<accumulate::DeviceData>;
-    fn accumulate_pass(
-        &self,
-        key: accumulate::AccumulatePassKey,
-    ) -> PtrRc<accumulate::AccumulatePass>;
+    fn accumulate_pass(&self, key: accumulate::PassKey) -> PtrRc<accumulate::Pass>;
     fn root(&self, key: ()) -> Root;
     fn mesh(&self, key: u32) -> PtrRc<MeshData>;
     fn instance(&self, key: accumulate::InstanceKey) -> PtrRc<MeshData>;
@@ -46,6 +43,14 @@ pub trait Renderer: Inputs {
     fn plan(&self, key: ()) -> PtrRc<Plan>;
     fn postprocess_data(&self, key: ()) -> PtrRc<postprocess::Data>;
 }
+
+#[salsa::database(RendererStorage, InputStorage)]
+#[derive(Default)]
+pub struct DatabaseStruct {
+    storage: salsa::Storage<Self>,
+}
+
+impl salsa::Database for DatabaseStruct {}
 
 fn root(db: &dyn Renderer, (): ()) -> Root {
     get_state(db.cursor(()))
@@ -86,24 +91,14 @@ fn mesh(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
 fn instance(db: &dyn Renderer, key: accumulate::InstanceKey) -> PtrRc<MeshData> {
     accumulate::instance(db, key)
 }
-#[salsa::database(RendererStorage, InputStorage)]
-#[derive(Default)]
-pub struct DatabaseStruct {
-    storage: salsa::Storage<Self>,
-}
-
-impl salsa::Database for DatabaseStruct {}
 
 fn data(db: &dyn Renderer, (): ()) -> PtrRc<accumulate::DeviceData> {
     accumulate::data(db, ())
 }
 
 /// Returns a BindGroup for reading from the the output from the pass
-fn accumulate_pass(
-    db: &dyn Renderer,
-    key: accumulate::AccumulatePassKey,
-) -> PtrRc<accumulate::AccumulatePass> {
-    accumulate::accumulate_pass(db, key)
+fn accumulate_pass(db: &dyn Renderer, key: accumulate::PassKey) -> PtrRc<accumulate::Pass> {
+    accumulate::pass(db, key)
 }
 
 pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
@@ -112,7 +107,7 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
     {
         let plan = db.plan(());
-        let accumulate = db.accumulate_pass(accumulate::AccumulatePassKey {
+        let accumulate = db.accumulate_pass(accumulate::PassKey {
             plans: plan.passes.clone(),
             filter: false,
         });
