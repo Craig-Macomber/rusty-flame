@@ -76,11 +76,15 @@ impl Bounds for Rect {
     }
 }
 
-pub fn letter_box(container: Rect, content: Rect) -> na::Affine2<f64> {
-    let scale = f64::min(
+pub fn letter_box_scale(container: Rect, content: Rect) -> f64 {
+    f64::min(
         container.width() / content.width(),
         container.height() / content.height(),
-    );
+    )
+}
+
+pub fn letter_box(container: Rect, content: Rect) -> na::Affine2<f64> {
+    let scale = letter_box_scale(container, content);
 
     na::convert(
         na::Similarity2::from_scaling(scale)

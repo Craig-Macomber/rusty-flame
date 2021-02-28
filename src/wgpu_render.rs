@@ -58,9 +58,8 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
 
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
     {
-        let plan = db.plan(());
         let accumulate = db.pass(accumulate::PassKey {
-            plans: plan.passes.clone(),
+            resolution: db.window_size(()),
             filter: false,
         });
         let bind_group = accumulate.render(db, &mut encoder);

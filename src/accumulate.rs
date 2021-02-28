@@ -7,12 +7,13 @@ use wgpu::{
     TextureDescriptor, TextureFormat, TextureSampleType, TextureUsage, TextureViewDescriptor,
     TextureViewDimension,
 };
+use winit::dpi::PhysicalSize;
 
 use crate::{
-    flame::BoundedState,
-    geometry::{self, box_to_box, Bounds, Rect},
+    flame::{BoundedState, State},
+    geometry::{self, box_to_box, letter_box, letter_box_scale, Bounds, Rect},
     mesh::{build_instances, build_mesh},
-    plan::{plan_render, Accumulate, Plan},
+    plan::Accumulate,
     render_common::MeshData,
     util_types::PtrRc,
     wgpu_render::Renderer,
@@ -25,24 +26,11 @@ pub trait Accumulator: Renderer {
     fn mesh(&self, key: u32) -> PtrRc<MeshData>;
     fn instance(&self, key: InstanceKey) -> PtrRc<MeshData>;
     fn bounds(&self, key: ()) -> Rect;
-    fn plan(&self, key: ()) -> PtrRc<Plan>;
-}
-
-fn plan(db: &dyn Accumulator, (): ()) -> PtrRc<Plan> {
-    plan_render(db.window_size(()).into()).into()
 }
 
 fn bounds(db: &dyn Accumulator, (): ()) -> Rect {
     let root = db.root(());
-    let passes = &db.plan(()).passes;
-
-    let levels = u32::min(
-        5,
-        passes
-            .iter()
-            .map(|pass| pass.mesh_levels + pass.instance_levels)
-            .sum(),
-    );
+    let levels = 5;
 
     // This can be expensive, so cache it.
     let bounds = root.get_state().get_bounds(levels);
@@ -119,7 +107,7 @@ pub struct Pass {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct PassKey {
-    pub plans: Vec<Accumulate>, // TODO: avoid copying tail of vector on recursion?
+    pub resolution: PhysicalSize<u32>,
     pub filter: bool,
 }
 
@@ -224,21 +212,83 @@ impl Pass {
     }
 }
 
+fn area_sf(t: &na::Affine2<f64>) -> f64 {
+    let mat = t.matrix();
+    // get the upper 2x2 (as that is what effects scaling). TODO: better way to get scale factor.
+    let m2 = nalgebra::Matrix2::from_fn(|a, b| mat.row(a)[b]);
+    m2.determinant()
+}
+
+fn texture_size(s: f64) -> u32 {
+    u32::max(1, (s / 8.0) as u32 * 8)
+}
+
 /// Returns a BindGroup for reading from the the output from the pass
 pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
-    if let Some((last, rest)) = key.plans.split_last() {
-        let smaller = if rest.len() != 0 {
-            Some(PassKey {
-                filter: true,
-                plans: Vec::from(rest),
-            })
-        } else {
-            None
-        };
-        make_pass(db, last.clone(), smaller, key.filter).into()
+    let b = db.bounds(());
+    let root = db.root(());
+    let mut sf_min = f64::INFINITY;
+    let mut sf_max = f64::NEG_INFINITY;
+    let mut fill_ratio = 0.0;
+    let mut count = 0;
+    // TODO: should render variable number of iterations of different functions to get more uniform scale instead of fixed level (recurse if it helps)
+    root.get_state().process_levels(1, &mut |x| {
+        let sf = area_sf(&x.mat);
+        sf_min = f64::min(sf_min, sf);
+        sf_max = f64::max(sf_max, sf);
+        fill_ratio += sf;
+        count += 1;
+    });
+    let sf_min = f64::sqrt(sf_min);
+    let sf_max = f64::sqrt(sf_max);
+
+    let lb_scale = letter_box_scale(
+        Rect {
+            min: na::Point2::origin(),
+            max: na::Point2::new(key.resolution.width as f64, key.resolution.height as f64),
+        },
+        b,
+    );
+
+    let width_to_fill = lb_scale * b.width();
+    let height_to_fill = lb_scale * b.height();
+
+    let fill_area = fill_ratio * width_to_fill * height_to_fill;
+
+    // TODO: reasonable cost function
+    let passes: u32 = if fill_area > 1024.0 * 1024.0 {
+        2
+    } else if fill_area > 256.0 * 256.0 {
+        6
     } else {
-        panic!("No render plan");
-    }
+        8
+    };
+
+    let sf = sf_min.powi(passes as i32);
+
+    let width = texture_size(width_to_fill * sf);
+    let height = texture_size(height_to_fill * sf);
+
+    let smaller = if width > 16 || height > 16 {
+        Some(PassKey {
+            filter: true,
+            resolution: [width, height].into(),
+        })
+    } else {
+        None
+    };
+    make_pass(
+        db,
+        Accumulate {
+            instance_levels: passes / 2,
+            mesh_levels: passes / 2,
+            size: key.resolution,
+            name: "AutoSized".to_owned(),
+        },
+        smaller,
+        key.filter,
+    )
+    .into()
 }
 
 fn make_pass(
