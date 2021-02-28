@@ -6,7 +6,9 @@ use wgpu::{
     TextureSampleType, TextureUsage, TextureViewDescriptor, TextureViewDimension,
 };
 
-use crate::{mesh::build_quad, render_common::MeshData, util_types::PtrRc, wgpu_render::Renderer};
+use crate::{
+    mesh::build_quad, render_common::MeshData, util_types::PtrRc, wgpu_render::Postprocesser,
+};
 
 /// Device dependant, but otherwise constant data.
 #[derive(Debug)]
@@ -17,7 +19,7 @@ pub struct Data {
     pipeline: wgpu::RenderPipeline,
 }
 
-pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<Data> {
+pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
     let device = db.device(());
     let queue = db.queue(());
     let data = db.data(());
@@ -171,7 +173,7 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<Data> {
 
 /// Draws a source accumulation texture into dst with log density coloring
 pub fn render(
-    db: &dyn Renderer,
+    db: &dyn Postprocesser,
     encoder: &mut wgpu::CommandEncoder,
     src: &wgpu::BindGroup,
     dst: &wgpu::TextureView,

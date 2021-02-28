@@ -1,16 +1,11 @@
-use geometry::Bounds;
 use std::rc::Rc;
 use wgpu::{CommandEncoderDescriptor, Device, Queue, TextureFormat};
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    accumulate::{self},
-    flame::{BoundedState, Root},
-    geometry::{self, Rect},
-    get_state,
-    plan::{plan_render, Plan},
-    postprocess,
-    render_common::MeshData,
+    accumulate::{self, AccumulateStorage, Accumulator},
+    flame::Root,
+    get_state, postprocess,
     util_types::{DebugIt, PtrRc},
 };
 
@@ -34,17 +29,19 @@ pub trait Inputs: salsa::Database {
 
 #[salsa::query_group(RendererStorage)]
 pub trait Renderer: Inputs {
-    fn data(&self, key: ()) -> PtrRc<accumulate::DeviceData>;
-    fn accumulate_pass(&self, key: accumulate::PassKey) -> PtrRc<accumulate::Pass>;
     fn root(&self, key: ()) -> Root;
-    fn mesh(&self, key: u32) -> PtrRc<MeshData>;
-    fn instance(&self, key: accumulate::InstanceKey) -> PtrRc<MeshData>;
-    fn bounds(&self, key: ()) -> Rect;
-    fn plan(&self, key: ()) -> PtrRc<Plan>;
+}
+
+#[salsa::query_group(PostprocesserStorage)]
+pub trait Postprocesser: Accumulator {
     fn postprocess_data(&self, key: ()) -> PtrRc<postprocess::Data>;
 }
 
-#[salsa::database(RendererStorage, InputStorage)]
+fn postprocess_data(db: &dyn Postprocesser, (): ()) -> PtrRc<postprocess::Data> {
+    postprocess::data(db, ()).into()
+}
+
+#[salsa::database(RendererStorage, InputStorage, AccumulateStorage, PostprocesserStorage)]
 #[derive(Default)]
 pub struct DatabaseStruct {
     storage: salsa::Storage<Self>,
@@ -56,58 +53,13 @@ fn root(db: &dyn Renderer, (): ()) -> Root {
     get_state(db.cursor(()))
 }
 
-fn plan(db: &dyn Renderer, (): ()) -> PtrRc<Plan> {
-    plan_render(db.window_size(()).into()).into()
-}
-
-fn postprocess_data(db: &dyn Renderer, (): ()) -> PtrRc<postprocess::Data> {
-    postprocess::data(db, ()).into()
-}
-
-fn bounds(db: &dyn Renderer, (): ()) -> Rect {
-    let root = db.root(());
-    let passes = &db.plan(()).passes;
-
-    let levels = u32::min(
-        5,
-        passes
-            .iter()
-            .map(|pass| pass.mesh_levels + pass.instance_levels)
-            .sum(),
-    );
-
-    // This can be expensive, so cache it.
-    let bounds = root.get_state().get_bounds(levels);
-    if bounds.is_infinite() {
-        panic!("infinite bounds")
-    }
-    bounds
-}
-
-fn mesh(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
-    accumulate::mesh(db, levels)
-}
-
-fn instance(db: &dyn Renderer, key: accumulate::InstanceKey) -> PtrRc<MeshData> {
-    accumulate::instance(db, key)
-}
-
-fn data(db: &dyn Renderer, (): ()) -> PtrRc<accumulate::DeviceData> {
-    accumulate::data(db, ())
-}
-
-/// Returns a BindGroup for reading from the the output from the pass
-fn accumulate_pass(db: &dyn Renderer, key: accumulate::PassKey) -> PtrRc<accumulate::Pass> {
-    accumulate::pass(db, key)
-}
-
 pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
     let device = db.device(());
 
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
     {
         let plan = db.plan(());
-        let accumulate = db.accumulate_pass(accumulate::PassKey {
+        let accumulate = db.pass(accumulate::PassKey {
             plans: plan.passes.clone(),
             filter: false,
         });

@@ -9,15 +9,50 @@ use wgpu::{
 };
 
 use crate::{
-    geometry::{self, box_to_box},
+    flame::BoundedState,
+    geometry::{self, box_to_box, Bounds, Rect},
     mesh::{build_instances, build_mesh},
-    plan::Accumulate,
+    plan::{plan_render, Accumulate, Plan},
     render_common::MeshData,
     util_types::PtrRc,
     wgpu_render::Renderer,
 };
 
-pub fn mesh(db: &dyn Renderer, levels: u32) -> PtrRc<MeshData> {
+#[salsa::query_group(AccumulateStorage)]
+pub trait Accumulator: Renderer {
+    fn data(&self, key: ()) -> PtrRc<DeviceData>;
+    fn pass(&self, key: PassKey) -> PtrRc<Pass>;
+    fn mesh(&self, key: u32) -> PtrRc<MeshData>;
+    fn instance(&self, key: InstanceKey) -> PtrRc<MeshData>;
+    fn bounds(&self, key: ()) -> Rect;
+    fn plan(&self, key: ()) -> PtrRc<Plan>;
+}
+
+fn plan(db: &dyn Accumulator, (): ()) -> PtrRc<Plan> {
+    plan_render(db.window_size(()).into()).into()
+}
+
+fn bounds(db: &dyn Accumulator, (): ()) -> Rect {
+    let root = db.root(());
+    let passes = &db.plan(()).passes;
+
+    let levels = u32::min(
+        5,
+        passes
+            .iter()
+            .map(|pass| pass.mesh_levels + pass.instance_levels)
+            .sum(),
+    );
+
+    // This can be expensive, so cache it.
+    let bounds = root.get_state().get_bounds(levels);
+    if bounds.is_infinite() {
+        panic!("infinite bounds")
+    }
+    bounds
+}
+
+pub fn mesh(db: &dyn Accumulator, levels: u32) -> PtrRc<MeshData> {
     let bounds = db.bounds(());
     MeshData::new(
         &*db.device(()),
@@ -35,7 +70,7 @@ pub struct InstanceKey {
     aspect_ratio: Ratio<u32>,
 }
 
-pub fn instance(db: &dyn Renderer, key: InstanceKey) -> PtrRc<MeshData> {
+pub fn instance(db: &dyn Accumulator, key: InstanceKey) -> PtrRc<MeshData> {
     let bounds = db.bounds(());
 
     let window_rect = geometry::Rect {
@@ -88,7 +123,7 @@ pub struct PassKey {
     pub filter: bool,
 }
 
-pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<DeviceData> {
+pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
     let device = db.device(());
     DeviceData {
         // Load the shaders from disk
@@ -144,7 +179,7 @@ pub fn data(db: &dyn Renderer, (): ()) -> PtrRc<DeviceData> {
 }
 
 impl Pass {
-    pub fn render(&self, db: &dyn Renderer, encoder: &mut wgpu::CommandEncoder) -> &BindGroup {
+    pub fn render(&self, db: &dyn Accumulator, encoder: &mut wgpu::CommandEncoder) -> &BindGroup {
         let vertexes = db.mesh(self.spec.mesh_levels);
         let instances = db.instance(InstanceKey {
             levels: self.spec.instance_levels,
@@ -153,7 +188,7 @@ impl Pass {
 
         // TODO: avoid having 3 "if let"s for this.
         let smaller_pass = if let Some(b) = &self.smaller {
-            let inner = db.accumulate_pass(b.clone());
+            let inner = db.pass(b.clone());
             Some(inner)
         } else {
             None
@@ -190,7 +225,7 @@ impl Pass {
 }
 
 /// Returns a BindGroup for reading from the the output from the pass
-pub fn pass(db: &dyn Renderer, key: PassKey) -> PtrRc<Pass> {
+pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
     if let Some((last, rest)) = key.plans.split_last() {
         let smaller = if rest.len() != 0 {
             Some(PassKey {
@@ -207,7 +242,7 @@ pub fn pass(db: &dyn Renderer, key: PassKey) -> PtrRc<Pass> {
 }
 
 fn make_pass(
-    db: &dyn Renderer,
+    db: &dyn Accumulator,
     accumulate: Accumulate,
     smaller: Option<PassKey>,
     filter: bool,
