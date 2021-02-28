@@ -11,13 +11,29 @@ use winit::dpi::PhysicalSize;
 
 use crate::{
     flame::{BoundedState, State},
-    geometry::{self, box_to_box, letter_box, letter_box_scale, Bounds, Rect},
+    geometry::{self, box_to_box, letter_box_scale, Bounds, Rect},
     mesh::{build_instances, build_mesh},
-    plan::Accumulate,
     render_common::MeshData,
     util_types::PtrRc,
     wgpu_render::Renderer,
 };
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct Accumulate {
+    pub levels: u32,
+    pub size: PhysicalSize<u32>,
+    pub name: String,
+}
+
+impl Accumulate {
+    fn mesh_levels(&self) -> u32 {
+        self.levels - self.instance_levels()
+    }
+
+    fn instance_levels(&self) -> u32 {
+        self.levels / 2
+    }
+}
 
 #[salsa::query_group(AccumulateStorage)]
 pub trait Accumulator: Renderer {
@@ -168,9 +184,9 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
 
 impl Pass {
     pub fn render(&self, db: &dyn Accumulator, encoder: &mut wgpu::CommandEncoder) -> &BindGroup {
-        let vertexes = db.mesh(self.spec.mesh_levels);
+        let vertexes = db.mesh(self.spec.mesh_levels());
         let instances = db.instance(InstanceKey {
-            levels: self.spec.instance_levels,
+            levels: self.spec.instance_levels(),
             aspect_ratio: Ratio::new(self.spec.size.width, self.spec.size.height),
         });
 
@@ -232,6 +248,7 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
     let mut fill_ratio = 0.0;
     let mut count = 0;
     // TODO: should render variable number of iterations of different functions to get more uniform scale instead of fixed level (recurse if it helps)
+    // TODO: avoid redoing this analysis for every pass
     root.get_state().process_levels(1, &mut |x| {
         let sf = area_sf(&x.mat);
         sf_min = f64::min(sf_min, sf);
@@ -280,8 +297,7 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
     make_pass(
         db,
         Accumulate {
-            instance_levels: passes / 2,
-            mesh_levels: passes / 2,
+            levels: passes,
             size: key.resolution,
             name: "AutoSized".to_owned(),
         },

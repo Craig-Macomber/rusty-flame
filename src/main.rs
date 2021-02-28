@@ -20,7 +20,6 @@ pub mod fixed_point;
 mod flame;
 pub mod geometry;
 mod mesh;
-mod plan;
 mod postprocess;
 mod render_common;
 mod util_types;
