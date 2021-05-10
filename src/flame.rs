@@ -1,7 +1,6 @@
 use crate::fixed_point;
 use crate::geometry::{Bounds, Rect};
 use nalgebra::Affine2;
-use reduce::Reduce;
 use std::fmt::Debug;
 
 pub trait State<'a> {

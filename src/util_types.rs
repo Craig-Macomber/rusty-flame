@@ -18,10 +18,6 @@ impl<T> Clone for PtrRc<T> {
 }
 
 impl<T> PartialEq for PtrRc<T> {
-    fn ne(&self, other: &Self) -> bool {
-        !Rc::ptr_eq(&self.0, &other.0)
-    }
-
     fn eq(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }

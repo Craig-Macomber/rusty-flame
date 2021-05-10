@@ -198,11 +198,7 @@ impl Pass {
             None
         };
 
-        let smaller = if let Some(b) = &smaller_pass {
-            Some(b.render(db, encoder))
-        } else {
-            None
-        };
+        let smaller = smaller_pass.as_ref().map(|b| b.render(db, encoder));
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Accumulate"),
@@ -224,7 +220,7 @@ impl Pass {
         render_pass.set_vertex_buffer(0, instances.buffer.slice(..));
         render_pass.set_vertex_buffer(1, vertexes.buffer.slice(..));
         render_pass.draw(0..(vertexes.count), 0..(instances.count));
-        return &self.output_bind_group;
+        &self.output_bind_group
     }
 }
 
@@ -257,7 +253,7 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
         count += 1;
     });
     let sf_min = f64::sqrt(sf_min);
-    let sf_max = f64::sqrt(sf_max);
+    let _sf_max = f64::sqrt(sf_max);
 
     let lb_scale = letter_box_scale(
         Rect {
@@ -360,7 +356,7 @@ fn make_pass(
             targets: &[wgpu::ColorTargetState {
                 format: TextureFormat::R32Float,
                 color_blend: blend_add.clone(),
-                alpha_blend: blend_add.clone(),
+                alpha_blend: blend_add,
                 write_mask: wgpu::ColorWrite::ALL,
             }],
         }),

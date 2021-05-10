@@ -1530,12 +1530,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reduce"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16d2dc47b68ac15ea328cd7ebe01d7d512ed29787f7d534ad2a3c341328b35d7"
-
-[[package]]
 name = "regex"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1586,7 +1580,6 @@ dependencies = [
  "nalgebra",
  "num",
  "pollster",
- "reduce",
  "salsa",
  "wgpu",
  "wgpu-subscriber",

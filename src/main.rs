@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::flame::Root;
 use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 use util_types::DebugIt;
-use wgpu_render::{render, Inputs};
+use wgpu_render::{render, Inputs, Inputs2};
 use winit::{
     dpi::{PhysicalSize, Size},
     event::{Event, WindowEvent},
@@ -160,8 +160,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 db.set_cursor(
                     (),
                     [
-                        f64::from(position.x) / f64::from(size.width),
-                        f64::from(position.y) / f64::from(size.height),
+                        position.x / f64::from(size.width),
+                        position.y / f64::from(size.height),
                     ],
                 );
                 window.request_redraw();

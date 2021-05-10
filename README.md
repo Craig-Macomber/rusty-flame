@@ -22,6 +22,7 @@ Features I'd like to implement:
 - [x] Render multiple iterations in a single draw call
       [x] Using generated meshes
       [x] Using instanced rendering
+- [ ] Scale factor adjusted density for uniform scale factors
 - [ ] Scale factor adjusted density for non-uniform scale factors
 - [x] Recursive render to texture for improved quality and performance
   - [ ] Use mip-maps/summed area tables (maybe anisotropic) for efficient sampling for fractals with highly variable scale factors

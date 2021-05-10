@@ -153,7 +153,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             targets: &[wgpu::ColorTargetState {
                 format: *db.swapchain_format(()),
                 color_blend: blend_replace.clone(),
-                alpha_blend: blend_replace.clone(),
+                alpha_blend: blend_replace,
                 write_mask: wgpu::ColorWrite::ALL,
             }],
         }),
