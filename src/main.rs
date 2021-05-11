@@ -113,7 +113,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .await
         .expect("Failed to create device");
 
-    let swapchain_format = adapter.get_swap_chain_preferred_format(&surface);
+    let swapchain_format = adapter.get_swap_chain_preferred_format(&surface).unwrap();
 
     let mut sc_desc = wgpu::SwapChainDescriptor {
         usage: wgpu::TextureUsage::RENDER_ATTACHMENT,

@@ -40,7 +40,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
     let texture_size = wgpu::Extent3d {
         width: dimensions.0,
         height: dimensions.1,
-        depth: 1,
+        depth_or_array_layers: 1,
     };
 
     let gradient_texture = device.create_texture(&TextureDescriptor {
@@ -54,16 +54,16 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
     });
 
     queue.write_texture(
-        wgpu::TextureCopyView {
+        wgpu::ImageCopyTexture {
             texture: &gradient_texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
         },
         gradient_rgba,
-        wgpu::TextureDataLayout {
+        wgpu::ImageDataLayout {
             offset: 0,
-            bytes_per_row: 4 * dimensions.0,
-            rows_per_image: dimensions.1,
+            bytes_per_row: Some(std::num::NonZeroU32::new(4 * dimensions.0).unwrap()),
+            rows_per_image: Some(std::num::NonZeroU32::new(dimensions.1).unwrap()),
         },
         texture_size,
     );
@@ -120,10 +120,15 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
         label: None,
     });
 
-    let blend_replace = wgpu::BlendState {
+    let blend_replace = wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
         dst_factor: wgpu::BlendFactor::Zero,
         operation: wgpu::BlendOperation::Add,
+    };
+
+    let blend_state_replace = wgpu::BlendState {
+        color: blend_replace,
+        alpha: blend_replace,
     };
 
     let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -144,7 +149,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             buffers: &[wgpu::VertexBufferLayout {
                 array_stride: 2 * 2 * 4,
                 step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float2, 1 => Float2],
+                attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
             }],
         },
         fragment: Some(wgpu::FragmentState {
@@ -152,8 +157,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             entry_point: "fs_main",
             targets: &[wgpu::ColorTargetState {
                 format: *db.swapchain_format(()),
-                color_blend: blend_replace.clone(),
-                alpha_blend: blend_replace,
+                blend: Some(blend_state_replace),
                 write_mask: wgpu::ColorWrite::ALL,
             }],
         }),
@@ -182,8 +186,8 @@ pub fn render(
 
     let mut postprocess_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Postprocess render pass"),
-        color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-            attachment: &dst,
+        color_attachments: &[wgpu::RenderPassColorAttachment {
+            view: &dst,
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),

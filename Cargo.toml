@@ -5,14 +5,14 @@ authors = ["Craig Macomber <CraigM@CraigM.info>"]
 edition = "2018"
 
 [dependencies]
-nalgebra = "0.25.3"
+nalgebra = "0.25.4"
 log = { version = "0.4.14", features = ["max_level_warn", "release_max_level_info"] }
-wgpu = "0.7.0"
+wgpu = "0.8.1"
 winit = { version = "0.24.0", features = ["web-sys"] }
-pollster = "0.2.1"
+pollster = "0.2.4"
 bytemuck = { version = "1.5.1", features = ["derive"] }
 image = "0.23.14"
-salsa = "0.16.0"
+salsa = "0.16.1"
 num = "0.4.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

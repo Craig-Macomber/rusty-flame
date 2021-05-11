@@ -108,7 +108,6 @@ pub fn instance(db: &dyn Accumulator, key: InstanceKey) -> PtrRc<MeshData> {
 pub struct DeviceData {
     shader: ShaderModule,
     pub accumulation_bind_group_layout: BindGroupLayout,
-    accumulation_sampler: wgpu::Sampler,
     nearest_sampler: wgpu::Sampler,
 }
 
@@ -145,7 +144,7 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
                         visibility: ShaderStage::FRAGMENT,
                         ty: BindingType::Texture {
                             multisampled: false,
-                            sample_type: TextureSampleType::Float { filterable: true },
+                            sample_type: TextureSampleType::Float { filterable: false }, // 32Float textures to not support filtering.
                             view_dimension: TextureViewDimension::D2,
                         },
                         count: None,
@@ -165,13 +164,6 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
         ),
 
         // TODO: mipmap filtering and generation
-        accumulation_sampler: device.create_sampler(&SamplerDescriptor {
-            label: Some("accumulation sampler"),
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..Default::default()
-        }),
-
         nearest_sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("nearest sampler"),
             mag_filter: FilterMode::Nearest,
@@ -202,8 +194,8 @@ impl Pass {
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Accumulate"),
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: &self.view,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: &self.view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -298,24 +290,23 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
             name: "AutoSized".to_owned(),
         },
         smaller,
-        key.filter,
     )
     .into()
 }
 
-fn make_pass(
-    db: &dyn Accumulator,
-    accumulate: Accumulate,
-    smaller: Option<PassKey>,
-    filter: bool,
-) -> Pass {
+fn make_pass(db: &dyn Accumulator, accumulate: Accumulate, smaller: Option<PassKey>) -> Pass {
     let device = db.device(());
     let data = db.data(());
 
-    let blend_add = wgpu::BlendState {
+    let blend_add = wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
         dst_factor: wgpu::BlendFactor::One,
         operation: wgpu::BlendOperation::Add,
+    };
+
+    let blend_state_add = wgpu::BlendState {
+        color: blend_add,
+        alpha: blend_add,
     };
 
     let groups = &[&data.accumulation_bind_group_layout];
@@ -332,12 +323,12 @@ fn make_pass(
             wgpu::VertexBufferLayout {
                 array_stride: 2 * 4 * 4,
                 step_mode: wgpu::InputStepMode::Instance,
-                attributes: &wgpu::vertex_attr_array![0 => Float4, 1 => Float4], // Rows of matrix
+                attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4], // Rows of matrix
             },
             wgpu::VertexBufferLayout {
                 array_stride: 2 * 2 * 4,
                 step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![2 => Float2, 3 => Float2],
+                attributes: &wgpu::vertex_attr_array![2 => Float32x2, 3 => Float32x2],
             },
         ],
     };
@@ -355,8 +346,7 @@ fn make_pass(
             },
             targets: &[wgpu::ColorTargetState {
                 format: TextureFormat::R32Float,
-                color_blend: blend_add.clone(),
-                alpha_blend: blend_add,
+                blend: Some(blend_state_add),
                 write_mask: wgpu::ColorWrite::ALL,
             }],
         }),
@@ -369,13 +359,13 @@ fn make_pass(
         size: Extent3d {
             width: accumulate.size.width,
             height: accumulate.size.height,
-            depth: 1,
+            depth_or_array_layers: 1,
         },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: TextureFormat::R32Float,
-        usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED,
+        usage: TextureUsage::SAMPLED | TextureUsage::RENDER_ATTACHMENT,
         label: Some(&accumulate.name),
     });
 
@@ -390,11 +380,7 @@ fn make_pass(
             },
             BindGroupEntry {
                 binding: 1,
-                resource: BindingResource::Sampler(if filter {
-                    &data.nearest_sampler
-                } else {
-                    &data.accumulation_sampler
-                }),
+                resource: BindingResource::Sampler(&data.nearest_sampler),
             },
         ],
         label: None,
