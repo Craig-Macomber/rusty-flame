@@ -108,6 +108,7 @@ pub fn instance(db: &dyn Accumulator, key: InstanceKey) -> PtrRc<MeshData> {
 pub struct DeviceData {
     shader: ShaderModule,
     pub accumulation_bind_group_layout: BindGroupLayout,
+    accumulation_sampler: wgpu::Sampler,
     nearest_sampler: wgpu::Sampler,
 }
 
@@ -144,7 +145,8 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
                         visibility: ShaderStage::FRAGMENT,
                         ty: BindingType::Texture {
                             multisampled: false,
-                            sample_type: TextureSampleType::Float { filterable: false }, // 32Float textures to not support filtering.
+                            // R32Float textures to not support filtering be default: requires native feature opt-in.
+                            sample_type: TextureSampleType::Float { filterable: true },
                             view_dimension: TextureViewDimension::D2,
                         },
                         count: None,
@@ -164,6 +166,13 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
         ),
 
         // TODO: mipmap filtering and generation
+        accumulation_sampler: device.create_sampler(&SamplerDescriptor {
+            label: Some("accumulation sampler"),
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..Default::default()
+        }),
+
         nearest_sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("nearest sampler"),
             mag_filter: FilterMode::Nearest,
@@ -290,11 +299,17 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
             name: "AutoSized".to_owned(),
         },
         smaller,
+        key.filter,
     )
     .into()
 }
 
-fn make_pass(db: &dyn Accumulator, accumulate: Accumulate, smaller: Option<PassKey>) -> Pass {
+fn make_pass(
+    db: &dyn Accumulator,
+    accumulate: Accumulate,
+    smaller: Option<PassKey>,
+    filter: bool,
+) -> Pass {
     let device = db.device(());
     let data = db.data(());
 
@@ -380,7 +395,11 @@ fn make_pass(db: &dyn Accumulator, accumulate: Accumulate, smaller: Option<PassK
             },
             BindGroupEntry {
                 binding: 1,
-                resource: BindingResource::Sampler(&data.nearest_sampler),
+                resource: BindingResource::Sampler(if filter {
+                    &data.nearest_sampler
+                } else {
+                    &data.accumulation_sampler
+                }),
             },
         ],
         label: None,
