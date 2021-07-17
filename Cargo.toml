@@ -5,12 +5,12 @@ authors = ["Craig Macomber <CraigM@CraigM.info>"]
 edition = "2018"
 
 [dependencies]
-nalgebra = "0.26.2"
+nalgebra = "0.28.0"
 log = { version = "0.4.14", features = ["max_level_warn", "release_max_level_info"] }
 wgpu = "0.8.1"
-winit = { version = "0.24.0", features = ["web-sys"] }
+winit = { version = "0.25.0", features = ["web-sys"] }
 pollster = "0.2.4"
-bytemuck = { version = "1.5.1", features = ["derive"] }
+bytemuck = { version = "1.7.0", features = ["derive"] }
 image = "0.23.14"
 salsa = "0.16.1"
 num = "0.4.0"
