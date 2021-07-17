@@ -105,6 +105,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
+                // Can use wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES and call Adapter::get_texture_format_features for more options (might enable filtering R32)
                 features: wgpu::Features::empty(),
                 limits: wgpu::Limits::default(),
             },
