@@ -100,13 +100,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .await
         .expect("Failed to find an appropriate adapter");
 
+    dbg!(adapter.get_texture_format_features(wgpu::TextureFormat::R32Float));
     // Create the logical device and command queue
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
                 // Can use wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES and call Adapter::get_texture_format_features for more options (might enable filtering R32)
-                features: wgpu::Features::empty(),
+                features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                 limits: wgpu::Limits::default(),
             },
             None,
