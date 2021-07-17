@@ -35,7 +35,7 @@ pub fn main() {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        wgpu_subscriber::initialize_default_subscriber(None);
+        // wgpu_subscriber::initialize_default_subscriber(None);
         // Temporarily avoid srgb formats for the swapchain on the web
         pollster::block_on(run(event_loop, window));
     }
