@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use wgpu::{CommandEncoderDescriptor, Device, Queue, TextureFormat};
+use wgpu::{CommandEncoderDescriptor, Device, Queue, TextureFormat, TextureViewDescriptor};
 use winit::dpi::PhysicalSize;
 
 use crate::{
@@ -62,7 +62,7 @@ fn root(db: &dyn Renderer, (): ()) -> Root {
     get_state(db.cursor(()))
 }
 
-pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
+pub fn render(db: &DatabaseStruct, frame: &wgpu::SurfaceTexture) {
     let device = db.device(());
 
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
@@ -72,7 +72,12 @@ pub fn render(db: &DatabaseStruct, frame: &wgpu::SwapChainTexture) {
             filter: false,
         });
         let bind_group = accumulate.render(db, &mut encoder);
-        postprocess::render(db, &mut encoder, bind_group, &frame.view);
+        postprocess::render(
+            db,
+            &mut encoder,
+            bind_group,
+            &frame.texture.create_view(&TextureViewDescriptor::default()),
+        );
         // TODO: debug option to draw intermediate texture to screen at actual resolution
     }
 

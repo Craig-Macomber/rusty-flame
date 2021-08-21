@@ -89,7 +89,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut frame_count = 0u64;
 
     let size: PhysicalSize<u32> = window.inner_size();
-    let instance = wgpu::Instance::new(wgpu::BackendBit::all());
+    let instance = wgpu::Instance::new(wgpu::Backends::all());
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -117,17 +117,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .await
         .expect("Failed to create device");
 
-    let swapchain_format = adapter.get_swap_chain_preferred_format(&surface).unwrap();
+    let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
 
-    let mut sc_desc = wgpu::SwapChainDescriptor {
-        usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
+    let mut config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
         width: size.width,
         height: size.height,
-        present_mode: wgpu::PresentMode::Fifo, // Mailbox
+        present_mode: wgpu::PresentMode::Mailbox,
     };
 
-    let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
+    surface.configure(&device, &config);
 
     let mut db = wgpu_render::DatabaseStruct::default();
     db.set_cursor((), [0.0, 0.0]);
@@ -148,10 +148,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 event: WindowEvent::Resized(size),
                 ..
             } => {
-                // Recreate the swap chain with the new size
-                sc_desc.width = size.width;
-                sc_desc.height = size.height;
-                swap_chain = db.device(()).create_swap_chain(&surface, &sc_desc);
+                // Reconfigure the surface with the new size
+                config.width = size.width;
+                config.height = size.height;
+                surface.configure(&db.device(()), &config);
                 db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
                 window.request_redraw();
             }
@@ -174,7 +174,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             Event::RedrawRequested(_) => {
                 render(
                     &db,
-                    &swap_chain
+                    &surface
                         .get_current_frame()
                         .expect("Failed to acquire next swap chain texture")
                         .output,

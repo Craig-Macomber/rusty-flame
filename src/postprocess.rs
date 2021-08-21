@@ -2,8 +2,8 @@ use std::borrow::Cow;
 use wgpu::{
     AddressMode, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BindingResource,
     BindingType, FilterMode, PipelineLayoutDescriptor, SamplerDescriptor, ShaderModule,
-    ShaderModuleDescriptor, ShaderSource, ShaderStage, TextureDescriptor, TextureFormat,
-    TextureSampleType, TextureUsage, TextureViewDescriptor, TextureViewDimension,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureAspect, TextureDescriptor,
+    TextureFormat, TextureSampleType, TextureUsages, TextureViewDescriptor, TextureViewDimension,
 };
 
 use crate::{
@@ -27,7 +27,6 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
     let shader = device.create_shader_module(&ShaderModuleDescriptor {
         label: Some("postprocess.wgsl"),
         source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/postprocess.wgsl"))),
-        flags: wgpu::ShaderFlags::all(),
     });
 
     let gradient_bytes = include_bytes!("../images/gradient.png");
@@ -49,7 +48,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D1,
         format: TextureFormat::Rgba8UnormSrgb,
-        usage: TextureUsage::SAMPLED | TextureUsage::COPY_DST,
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         label: Some("gradient_texture"),
     });
 
@@ -58,6 +57,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             texture: &gradient_texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
+            aspect: TextureAspect::All,
         },
         gradient_rgba,
         wgpu::ImageDataLayout {
@@ -84,7 +84,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             entries: &[
                 BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStage::FRAGMENT,
+                    visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Texture {
                         multisampled: false,
                         sample_type: TextureSampleType::Float { filterable: true },
@@ -94,7 +94,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
                 },
                 BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: ShaderStage::FRAGMENT,
+                    visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Sampler {
                         comparison: false,
                         filtering: true,
@@ -148,7 +148,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             entry_point: "vs_main",
             buffers: &[wgpu::VertexBufferLayout {
                 array_stride: 2 * 2 * 4,
-                step_mode: wgpu::InputStepMode::Vertex,
+                step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
             }],
         },
@@ -158,7 +158,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             targets: &[wgpu::ColorTargetState {
                 format: *db.swapchain_format(()),
                 blend: Some(blend_state_replace),
-                write_mask: wgpu::ColorWrite::ALL,
+                write_mask: wgpu::ColorWrites::ALL,
             }],
         }),
         primitive: wgpu::PrimitiveState::default(),

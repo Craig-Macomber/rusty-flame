@@ -3,8 +3,8 @@ use std::borrow::Cow;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry,
     BindingResource, BindingType, Extent3d, FilterMode, PipelineLayoutDescriptor,
-    SamplerDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStage,
-    TextureDescriptor, TextureFormat, TextureSampleType, TextureUsage, TextureViewDescriptor,
+    SamplerDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages,
+    TextureDescriptor, TextureFormat, TextureSampleType, TextureUsages, TextureViewDescriptor,
     TextureViewDimension,
 };
 use winit::dpi::PhysicalSize;
@@ -134,7 +134,6 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
         shader: device.create_shader_module(&ShaderModuleDescriptor {
             label: Some("wgpu.wgsl"),
             source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
-            flags: wgpu::ShaderFlags::all(),
         }),
 
         accumulation_bind_group_layout: device.create_bind_group_layout(
@@ -142,7 +141,7 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
                 entries: &[
                     BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: ShaderStage::FRAGMENT,
+                        visibility: ShaderStages::FRAGMENT,
                         ty: BindingType::Texture {
                             multisampled: false,
                             // R32Float textures to not support filtering be default: requires native feature opt-in.
@@ -153,7 +152,7 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
                     },
                     BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: ShaderStage::FRAGMENT,
+                        visibility: ShaderStages::FRAGMENT,
                         ty: BindingType::Sampler {
                             comparison: false,
                             filtering: true,
@@ -337,12 +336,12 @@ fn make_pass(
         buffers: &[
             wgpu::VertexBufferLayout {
                 array_stride: 2 * 4 * 4,
-                step_mode: wgpu::InputStepMode::Instance,
+                step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4], // Rows of matrix
             },
             wgpu::VertexBufferLayout {
                 array_stride: 2 * 2 * 4,
-                step_mode: wgpu::InputStepMode::Vertex,
+                step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![2 => Float32x2, 3 => Float32x2],
             },
         ],
@@ -362,7 +361,7 @@ fn make_pass(
             targets: &[wgpu::ColorTargetState {
                 format: TextureFormat::R32Float,
                 blend: Some(blend_state_add),
-                write_mask: wgpu::ColorWrite::ALL,
+                write_mask: wgpu::ColorWrites::ALL,
             }],
         }),
         primitive: wgpu::PrimitiveState::default(),
@@ -380,7 +379,7 @@ fn make_pass(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: TextureFormat::R32Float,
-        usage: TextureUsage::SAMPLED | TextureUsage::RENDER_ATTACHMENT,
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
         label: Some(&accumulate.name),
     });
 
