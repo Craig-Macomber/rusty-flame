@@ -187,7 +187,7 @@ pub fn render(
     let mut postprocess_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Postprocess render pass"),
         color_attachments: &[wgpu::RenderPassColorAttachment {
-            view: &dst,
+            view: dst,
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -198,7 +198,7 @@ pub fn render(
     });
 
     postprocess_pass.set_pipeline(&data.pipeline);
-    postprocess_pass.set_bind_group(0, &src, &[]);
+    postprocess_pass.set_bind_group(0, src, &[]);
     postprocess_pass.set_bind_group(1, &data.gradient_bind_group, &[]);
     postprocess_pass.set_vertex_buffer(0, data.quad.buffer.slice(..));
     postprocess_pass.draw(0..(data.quad.count), 0..1);

@@ -101,7 +101,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .expect("Failed to find an appropriate adapter");
 
     // List features for R32Float (This app depends on R32Float blending)
-    dbg!(adapter.get_texture_format_features(wgpu::TextureFormat::R32Float));
+    let r32features = adapter.get_texture_format_features(wgpu::TextureFormat::R32Float);
+    if !r32features.filterable {
+        panic!("This app depends on R32Float blending which is not supported")
+    }
 
     // Create the logical device and command queue
     let (device, queue) = adapter

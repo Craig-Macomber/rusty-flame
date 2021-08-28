@@ -214,7 +214,7 @@ impl Pass {
         });
         render_pass.set_pipeline(&self.pipeline);
         if let Some(b) = &smaller {
-            render_pass.set_bind_group(0, &b, &[])
+            render_pass.set_bind_group(0, b, &[])
         };
 
         render_pass.set_vertex_buffer(0, instances.buffer.slice(..));

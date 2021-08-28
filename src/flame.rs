@@ -58,7 +58,7 @@ pub trait BoundedState<'a>: State<'a> {
                         let b3 = s.transform_bounds(input_bounds);
                         b2 = Some(match &b2 {
                             None => b3,
-                            Some(b4) => Self::B::union(&b4, &b3),
+                            Some(b4) => Self::B::union(b4, &b3),
                         })
                     });
 

@@ -15,7 +15,7 @@ impl MeshData {
             count: data.len() as u32,
             buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
-                contents: bytemuck::cast_slice(&data),
+                contents: bytemuck::cast_slice(data),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
         }
