@@ -2,6 +2,14 @@
 
 extern crate nalgebra as na;
 
+use std::time::Instant;
+
+use egui::FontDefinitions;
+use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
+use egui_winit_platform::{Platform, PlatformDescriptor};
+use epi::*;
+use winit::event::Event::*;
+
 use std::rc::Rc;
 
 use crate::flame::Root;
@@ -22,11 +30,31 @@ pub mod geometry;
 mod mesh;
 mod postprocess;
 mod render_common;
+mod ui;
 mod util_types;
 mod wgpu_render;
 
+/// A custom event type for the winit app.
+enum Event2 {
+    RequestRedraw,
+}
+
+/// This is the repaint signal type that egui needs for requesting a repaint from another thread.
+/// It sends the custom RequestRedraw event to the winit event loop.
+struct ExampleRepaintSignal(std::sync::Mutex<winit::event_loop::EventLoopProxy<Event2>>);
+
+impl epi::RepaintSignal for ExampleRepaintSignal {
+    fn request_repaint(&self) {
+        self.0
+            .lock()
+            .unwrap()
+            .send_event(Event2::RequestRedraw)
+            .ok();
+    }
+}
+
 pub fn main() {
-    let event_loop = EventLoop::new();
+    let event_loop = winit::event_loop::EventLoop::with_user_event();
     let window = WindowBuilder::new()
         .with_inner_size(Size::Physical((3000, 2000).into()))
         .with_title("Rusty Flame")
@@ -84,7 +112,7 @@ pub fn get_state(cursor: [f64; 2]) -> Root {
     Root::new(va)
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window) {
+async fn run(event_loop: EventLoop<Event2>, window: Window) {
     let mut started = std::time::Instant::now();
     let mut frame_count = 0u64;
 
@@ -120,26 +148,45 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .await
         .expect("Failed to create device");
 
-    let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
+    let surface_format = surface.get_preferred_format(&adapter).unwrap();
 
-    let mut config = wgpu::SurfaceConfiguration {
+    let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: swapchain_format,
+        format: surface_format,
         width: size.width,
         height: size.height,
         present_mode: wgpu::PresentMode::Mailbox,
     };
 
-    surface.configure(&device, &config);
+    surface.configure(&device, &surface_config);
+
+    // We use the egui_winit_platform crate as the platform.
+    let mut platform = Platform::new(PlatformDescriptor {
+        physical_width: size.width as u32,
+        physical_height: size.height as u32,
+        scale_factor: window.scale_factor(),
+        font_definitions: FontDefinitions::default(),
+        style: Default::default(),
+    });
+
+    // We use the egui_wgpu_backend crate as the render backend.
+    let mut egui_rpass = RenderPass::new(&device, surface_format, 1);
+
+    // Display the demo application that ships with egui.
+    // let mut demo_app = egui_demo_lib::ColorTest::default();
+
+    let start_time = Instant::now();
 
     let mut db = wgpu_render::DatabaseStruct::default();
     db.set_cursor((), [0.0, 0.0]);
     db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
     db.set_device_with_durability((), Rc::new(device), salsa::Durability::HIGH);
     db.set_queue_with_durability((), Rc::new(queue), salsa::Durability::HIGH);
-    db.set_swapchain_format_with_durability((), DebugIt(swapchain_format), salsa::Durability::HIGH);
+    db.set_swapchain_format_with_durability((), DebugIt(surface_format), salsa::Durability::HIGH);
 
     event_loop.run(move |event, _, control_flow| {
+        // Pass the winit events to the platform integration.
+        platform.handle_event(&event);
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
@@ -152,9 +199,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 ..
             } => {
                 // Reconfigure the surface with the new size
-                config.width = size.width;
-                config.height = size.height;
-                surface.configure(&db.device(()), &config);
+                surface_config.width = size.width;
+                surface_config.height = size.height;
+                surface.configure(&db.device(()), &surface_config);
                 db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
                 window.request_redraw();
             }
@@ -173,26 +220,72 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 );
                 window.request_redraw();
             }
-
+            MainEventsCleared | UserEvent(Event2::RequestRedraw) => {
+                window.request_redraw();
+            }
             Event::RedrawRequested(_) => {
-                render(
-                    &db,
-                    &surface
-                        .get_current_frame()
-                        .expect("Failed to acquire next swap chain texture")
-                        .output,
-                );
-                frame_count += 1;
-                if frame_count % 100 == 0 {
-                    let elapsed = started.elapsed();
-                    log::error!(
-                        "Frame Time: {:?}. FPS: {:.3}",
-                        elapsed / frame_count as u32,
-                        frame_count as f64 / elapsed.as_secs_f64()
-                    );
-                    started = std::time::Instant::now();
-                    frame_count = 0;
+                let device = &mut db.device(());
+                let queue = &mut db.queue(());
+                let output_texture = surface
+                    .get_current_frame()
+                    .expect("Failed to acquire next swap chain texture")
+                    .output;
+                let mut encoder =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                {
+                    render(&db, &output_texture, &mut encoder);
+
+                    frame_count += 1;
+                    if frame_count % 100 == 0 {
+                        let elapsed = started.elapsed();
+                        log::error!(
+                            "Frame Time: {:?}. FPS: {:.3}",
+                            elapsed / frame_count as u32,
+                            frame_count as f64 / elapsed.as_secs_f64()
+                        );
+                        started = std::time::Instant::now();
+                        frame_count = 0;
+                    }
+
+                    platform.update_time(start_time.elapsed().as_secs_f64());
+
+                    let output_view = output_texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+
+                    // Draw UI
+                    platform.begin_frame();
+                    ui::update(&platform.context());
+
+                    // End the UI frame. We could now handle the output and draw the UI with the backend.
+                    let (_output, paint_commands) = platform.end_frame(Some(&window));
+                    let paint_jobs = platform.context().tessellate(paint_commands);
+
+                    // Upload all resources for the GPU.
+                    let screen_descriptor = ScreenDescriptor {
+                        physical_width: surface_config.width,
+                        physical_height: surface_config.height,
+                        scale_factor: window.scale_factor() as f32,
+                    };
+
+                    egui_rpass.update_texture(device, queue, &platform.context().texture());
+                    egui_rpass.update_user_textures(device, queue);
+
+                    egui_rpass.update_buffers(device, queue, &paint_jobs, &screen_descriptor);
+
+                    // Record all render passes.
+                    egui_rpass
+                        .execute(
+                            &mut encoder,
+                            &output_view,
+                            &paint_jobs,
+                            &screen_descriptor,
+                            None,
+                        )
+                        .unwrap();
                 }
+
+                db.queue(()).submit(Some(encoder.finish()));
             }
             // Event::MainEventsCleared => {
             //     window.request_redraw(); // Enable to busy loop
