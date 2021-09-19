@@ -184,6 +184,11 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
     db.set_queue_with_durability((), Rc::new(queue), salsa::Durability::HIGH);
     db.set_swapchain_format_with_durability((), DebugIt(surface_format), salsa::Durability::HIGH);
 
+    let mut ui_settings = ui::Settings {
+        angle: 0.5f32,
+        levels: 5,
+    };
+
     event_loop.run(move |event, _, control_flow| {
         // Pass the winit events to the platform integration.
         platform.handle_event(&event);
@@ -214,13 +219,15 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                 db.set_cursor(
                     (),
                     [
-                        position.x / f64::from(size.width),
-                        position.y / f64::from(size.height),
+                        // position.x / f64::from(size.width),
+                        //position.y / f64::from(size.height),
+                        f64::from(ui_settings.angle),
+                        f64::from(ui_settings.angle),
                     ],
                 );
                 window.request_redraw();
             }
-            MainEventsCleared | UserEvent(Event2::RequestRedraw) => {
+            UserEvent(Event2::RequestRedraw) => {
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
@@ -255,7 +262,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
 
                     // Draw UI
                     platform.begin_frame();
-                    ui::update(&platform.context());
+                    ui::update(&platform.context(), &mut ui_settings);
 
                     // End the UI frame. We could now handle the output and draw the UI with the backend.
                     let (_output, paint_commands) = platform.end_frame(Some(&window));
