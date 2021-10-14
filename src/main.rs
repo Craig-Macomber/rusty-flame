@@ -124,6 +124,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
             power_preference: wgpu::PowerPreference::default(),
             // Request an adapter which can render to our surface
             compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
         })
         .await
         .expect("Failed to find an appropriate adapter");
@@ -234,9 +235,8 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                 let device = &mut db.device(());
                 let queue = &mut db.queue(());
                 let output_texture = surface
-                    .get_current_frame()
-                    .expect("Failed to acquire next swap chain texture")
-                    .output;
+                    .get_current_texture()
+                    .expect("Failed to acquire next swap chain texture");
                 let mut encoder =
                     device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                 {
@@ -293,6 +293,8 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                 }
 
                 db.queue(()).submit(Some(encoder.finish()));
+
+                output_texture.present()
             }
             // Event::MainEventsCleared => {
             //     window.request_redraw(); // Enable to busy loop
