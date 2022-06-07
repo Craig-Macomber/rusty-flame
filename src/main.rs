@@ -7,7 +7,6 @@ use std::time::Instant;
 use egui::FontDefinitions;
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
 use egui_winit_platform::{Platform, PlatformDescriptor};
-use epi::*;
 use winit::event::Event::*;
 
 use std::rc::Rc;

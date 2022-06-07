@@ -10,7 +10,7 @@ pub struct MeshData {
 }
 
 impl MeshData {
-    pub fn new<'a, T: Pod>(device: &'a Device, data: &[T], label: &'a str) -> MeshData {
+    pub fn new<'a>(device: &'a Device, data: &[impl Pod], label: &'a str) -> MeshData {
         MeshData {
             count: data.len() as u32,
             buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
