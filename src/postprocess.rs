@@ -95,10 +95,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler {
-                        comparison: false,
-                        filtering: true,
-                    },
+                    ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -164,6 +161,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
+        multiview: None,
     });
 
     Data {

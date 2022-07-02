@@ -153,10 +153,7 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
                     BindGroupLayoutEntry {
                         binding: 1,
                         visibility: ShaderStages::FRAGMENT,
-                        ty: BindingType::Sampler {
-                            comparison: false,
-                            filtering: true,
-                        },
+                        ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                 ],
@@ -367,6 +364,7 @@ fn make_pass(
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
+        multiview: None,
     });
 
     let texture: wgpu::Texture = device.create_texture(&TextureDescriptor {

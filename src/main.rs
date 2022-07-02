@@ -42,7 +42,7 @@ enum Event2 {
 /// It sends the custom RequestRedraw event to the winit event loop.
 struct ExampleRepaintSignal(std::sync::Mutex<winit::event_loop::EventLoopProxy<Event2>>);
 
-impl epi::RepaintSignal for ExampleRepaintSignal {
+impl epi::backend::RepaintSignal for ExampleRepaintSignal {
     fn request_repaint(&self) {
         self.0
             .lock()
