@@ -2,11 +2,7 @@
 
 extern crate nalgebra as na;
 
-use std::time::Instant;
-
-use egui::FontDefinitions;
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
-use egui_winit_platform::{Platform, PlatformDescriptor};
 use winit::event::Event::*;
 
 use std::rc::Rc;
@@ -17,7 +13,7 @@ use util_types::DebugIt;
 use wgpu_render::{render, Inputs, Inputs2};
 use winit::{
     dpi::{PhysicalSize, Size},
-    event::{Event, WindowEvent},
+    event::Event,
     event_loop::{ControlFlow, EventLoop},
     window::Window,
     window::WindowBuilder,
@@ -101,12 +97,12 @@ pub fn get_state(cursor: [f64; 2]) -> Root {
             let offset = Rotation2::new(std::f64::consts::PI * 2.0 * f64::from(i) / f64::from(n))
                 * Point2::new(shift, 0.0);
             na::convert::<_, Affine2<f64>>(sm * Translation2::new(offset.x, offset.y))
-                * Rotation2::new(20.0 * x)
+                * Rotation2::new(x)
         })
         .collect::<Vec<Affine2<f64>>>();
 
-    va[0] *= Rotation2::new(20.0 * y);
-    va[1] *= Rotation2::new(20.0 * x);
+    va[0] *= Rotation2::new(y);
+    va[1] *= Rotation2::new(x);
 
     Root::new(va)
 }
@@ -160,14 +156,9 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
 
     surface.configure(&device, &surface_config);
 
-    // We use the egui_winit_platform crate as the platform.
-    let mut platform = Platform::new(PlatformDescriptor {
-        physical_width: size.width as u32,
-        physical_height: size.height as u32,
-        scale_factor: window.scale_factor(),
-        font_definitions: FontDefinitions::default(),
-        style: Default::default(),
-    });
+    // We use the `egui-winit` crate to handle integration with wgpu, and create the runtime context
+    let mut state = egui_winit::State::new(4096, &window);
+    let context = egui::Context::default();
 
     // We use the egui_wgpu_backend crate as the render backend.
     let mut egui_rpass = RenderPass::new(&device, surface_format, 1);
@@ -175,7 +166,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
     // Display the demo application that ships with egui.
     // let mut demo_app = egui_demo_lib::ColorTest::default();
 
-    let start_time = Instant::now();
+    // let start_time = Instant::now();
 
     let mut db = wgpu_render::DatabaseStruct::default();
     db.set_cursor((), [0.0, 0.0]);
@@ -190,8 +181,6 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
     };
 
     event_loop.run(move |event, _, control_flow| {
-        // Pass the winit events to the platform integration.
-        platform.handle_event(&event);
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
@@ -199,38 +188,31 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
 
         *control_flow = ControlFlow::Wait;
         match event {
-            Event::WindowEvent {
-                event: WindowEvent::Resized(size),
-                ..
-            } => {
-                // Reconfigure the surface with the new size
-                surface_config.width = size.width;
-                surface_config.height = size.height;
-                surface.configure(&db.device(()), &surface_config);
-                db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
-                window.request_redraw();
-            }
-
-            Event::WindowEvent {
-                event: WindowEvent::CursorMoved { position, .. },
-                ..
-            } => {
-                let size = window.inner_size();
-                db.set_cursor(
-                    (),
-                    [
-                        // position.x / f64::from(size.width),
-                        //position.y / f64::from(size.height),
-                        f64::from(ui_settings.angle),
-                        f64::from(ui_settings.angle),
-                    ],
-                );
-                window.request_redraw();
-            }
+            // Event::WindowEvent {
+            //     event: WindowEvent::CursorMoved { position, .. },
+            //     ..
+            // } => {
+            //     let size = window.inner_size();
+            //     db.set_cursor(
+            //         (),
+            //         [
+            //             // position.x / f64::from(size.width),
+            //             //position.y / f64::from(size.height),
+            //             f64::from(ui_settings.angle),
+            //             f64::from(ui_settings.angle),
+            //         ],
+            //     );
+            //     window.request_redraw();
+            // }
             UserEvent(Event2::RequestRedraw) => {
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
+                db.set_cursor(
+                    (),
+                    [f64::from(ui_settings.angle), f64::from(ui_settings.angle)],
+                );
+
                 let device = &mut db.device(());
                 let queue = &mut db.queue(());
                 let output_texture = surface
@@ -253,19 +235,19 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                         frame_count = 0;
                     }
 
-                    platform.update_time(start_time.elapsed().as_secs_f64());
-
                     let output_view = output_texture
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
 
                     // Draw UI
-                    platform.begin_frame();
-                    ui::update(&platform.context(), &mut ui_settings);
+                    let input = state.take_egui_input(&window);
+                    context.begin_frame(input);
+
+                    ui::update(&context, &mut ui_settings);
 
                     // End the UI frame. We could now handle the output and draw the UI with the backend.
-                    let (_output, paint_commands) = platform.end_frame(Some(&window));
-                    let paint_jobs = platform.context().tessellate(paint_commands);
+                    let output = context.end_frame();
+                    let paint_jobs = context.tessellate(output.shapes);
 
                     // Upload all resources for the GPU.
                     let screen_descriptor = ScreenDescriptor {
@@ -274,8 +256,10 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                         scale_factor: window.scale_factor() as f32,
                     };
 
-                    egui_rpass.update_texture(device, queue, &platform.context().texture());
-                    egui_rpass.update_user_textures(device, queue);
+                    egui_rpass
+                        .add_textures(device, queue, &output.textures_delta)
+                        .unwrap();
+                    egui_rpass.remove_textures(output.textures_delta).unwrap();
 
                     egui_rpass.update_buffers(device, queue, &paint_jobs, &screen_descriptor);
 
@@ -298,10 +282,38 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
             // Event::MainEventsCleared => {
             //     window.request_redraw(); // Enable to busy loop
             // }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => *control_flow = ControlFlow::Exit,
+            Event::WindowEvent { event, .. } => {
+                // Ideally we would only request redraw if needed, not on every event,
+                // but its unclear how to tell when its safe to skip this.
+                window.request_redraw();
+
+                // Pass the winit events to the platform integration.
+                let exclusive = state.on_event(&context, &event);
+                // state.on_event returns true when the event has already been handled by egui and shouldn't be passed further
+                if !exclusive {
+                    match event {
+                        winit::event::WindowEvent::Resized(size) => {
+                            // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
+                            // See: https://github.com/rust-windowing/winit/issues/208
+                            // This solves an issue where the app would panic when minimizing on Windows.
+                            if size.width > 0 && size.height > 0 {
+                                surface_config.width = size.width;
+                                surface_config.height = size.height;
+                                surface.configure(&db.device(()), &surface_config);
+                                db.set_window_size_with_durability(
+                                    (),
+                                    size,
+                                    salsa::Durability::MEDIUM,
+                                );
+                            }
+                        }
+                        winit::event::WindowEvent::CloseRequested => {
+                            *control_flow = ControlFlow::Exit;
+                        }
+                        _ => (),
+                    }
+                }
+            }
             _ => {}
         }
     });
