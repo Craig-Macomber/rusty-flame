@@ -24,7 +24,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
     let queue = db.queue(());
     let data = db.data(());
 
-    let shader = device.create_shader_module(&ShaderModuleDescriptor {
+    let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("postprocess.wgsl"),
         source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/postprocess.wgsl"))),
     });
@@ -152,11 +152,11 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
         fragment: Some(wgpu::FragmentState {
             module: &shader,
             entry_point: "fs_main",
-            targets: &[wgpu::ColorTargetState {
+            targets: &[Some(wgpu::ColorTargetState {
                 format: *db.swapchain_format(()),
                 blend: Some(blend_state_replace),
                 write_mask: wgpu::ColorWrites::ALL,
-            }],
+            })],
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
@@ -184,14 +184,14 @@ pub fn render(
 
     let mut postprocess_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Postprocess render pass"),
-        color_attachments: &[wgpu::RenderPassColorAttachment {
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: dst,
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                 store: true,
             },
-        }],
+        })],
         depth_stencil_attachment: None,
     });
 

@@ -1,23 +1,21 @@
 
 struct VertexOutput {
-    [[location(0)]]
-    tex_coord: vec2<f32>;
-    [[builtin(position)]]
-    position: vec4<f32>;
-};
+    @location(0)
+    tex_coord: vec2<f32>,
+    @builtin(position)
+    position: vec4<f32>,
+}
 
-
-
-[[stage(vertex)]]
+@vertex
 fn vs_main(
-    [[location(0)]]
+    @location(0)
     instance_matrix_row_0: vec4<f32>,
-    [[location(1)]]
+    @location(1)
     instance_matrix_row_1: vec4<f32>,
 
-    [[location(2)]]
+    @location(2)
     in_pos_vs: vec2<f32>,
-    [[location(3)]]
+    @location(3)
     in_tex_coord_vs: vec2<f32>,
 ) -> VertexOutput {
     // var instance_matrix: mat2x3<f32> = mat2x3<f32>(instance_matrix_row_0.xyz, instance_matrix_row_1.xyz);
@@ -35,22 +33,22 @@ fn vs_main(
 
 
 
-[[stage(fragment)]]
-fn fs_main(in : VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);
 }
 
 
-[[group(0), binding(0)]]
+@group(0) @binding(0)
 var r_color: texture_2d<f32>;
-[[group(0), binding(1)]]
+@group(0) @binding(1)
 var r_sampler: sampler;
 
 
-[[stage(fragment)]]
+@fragment
 fn fs_main_textured(
     in : VertexOutput
-) -> [[location(0)]] vec4<f32>  {
+) -> @location(0) vec4<f32>  {
     var tex: vec4<f32> = textureSample(r_color, r_sampler, in.tex_coord);
     return tex;
 }

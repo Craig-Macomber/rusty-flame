@@ -131,7 +131,7 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
     let device = db.device(());
     DeviceData {
         // Load the shaders from disk
-        shader: device.create_shader_module(&ShaderModuleDescriptor {
+        shader: device.create_shader_module(ShaderModuleDescriptor {
             label: Some("wgpu.wgsl"),
             source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
         }),
@@ -199,14 +199,14 @@ impl Pass {
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Accumulate"),
-            color_attachments: &[wgpu::RenderPassColorAttachment {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: true,
                 },
-            }],
+            })],
             depth_stencil_attachment: None,
         });
         render_pass.set_pipeline(&self.pipeline);
@@ -355,11 +355,11 @@ fn make_pass(
             } else {
                 "fs_main"
             },
-            targets: &[wgpu::ColorTargetState {
+            targets: &[Some(wgpu::ColorTargetState {
                 format: TextureFormat::R32Float,
                 blend: Some(blend_state_add),
                 write_mask: wgpu::ColorWrites::ALL,
-            }],
+            })],
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,

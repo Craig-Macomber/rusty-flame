@@ -112,7 +112,9 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
     let mut frame_count = 0u64;
 
     let size: PhysicalSize<u32> = window.inner_size();
-    let instance = wgpu::Instance::new(wgpu::Backends::all());
+    // Backend "all" does not appear to be preferring VULKAN in wgpu 0.13, so use VULKAN explicitly for now.
+    let instance = wgpu::Instance::new(wgpu::Backends::VULKAN);
+    dbg!(&instance);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -124,9 +126,14 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
         .await
         .expect("Failed to find an appropriate adapter");
 
+    dbg!(&adapter.get_info());
+
     // List features for R32Float (This app depends on R32Float blending)
     let r32features = adapter.get_texture_format_features(wgpu::TextureFormat::R32Float);
-    if !r32features.filterable {
+    if !r32features
+        .flags
+        .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
+    {
         panic!("This app depends on R32Float blending which is not supported")
     }
 
@@ -144,7 +151,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
         .await
         .expect("Failed to create device");
 
-    let surface_format = surface.get_preferred_format(&adapter).unwrap();
+    let surface_format = surface.get_supported_formats(&adapter)[0];
 
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
