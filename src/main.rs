@@ -49,7 +49,7 @@ impl epi::backend::RepaintSignal for ExampleRepaintSignal {
 }
 
 pub fn main() {
-    let event_loop = winit::event_loop::EventLoop::with_user_event();
+    let event_loop = winit::event_loop::EventLoopBuilder::with_user_event().build();
     let window = WindowBuilder::new()
         .with_inner_size(Size::Physical((3000, 2000).into()))
         .with_title("Rusty Flame")
@@ -159,12 +159,13 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
         width: size.width,
         height: size.height,
         present_mode: wgpu::PresentMode::Mailbox,
+        alpha_mode: wgpu::CompositeAlphaMode::Opaque,
     };
 
     surface.configure(&device, &surface_config);
 
     // We use the `egui-winit` crate to handle integration with wgpu, and create the runtime context
-    let mut state = egui_winit::State::new(4096, &window);
+    let mut state = egui_winit::State::new(&event_loop);
     let context = egui::Context::default();
 
     // We use the egui_wgpu_backend crate as the render backend.

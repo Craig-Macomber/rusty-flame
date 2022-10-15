@@ -40,3 +40,9 @@ Features I'd like to implement:
 - [ ] Performance testing
 - [ ] Quality testing
 - [ ] Fractal editing GUI
+
+# Dependencies
+
+Some deep transitive dependencies appear to require these packages to be installed:
+
+`sudo apt install pkg-config cmake libfontconfig1-dev`
