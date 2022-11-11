@@ -80,29 +80,17 @@ pub fn main() {
     }
 }
 
-const MIN_SCALE: f64 = 0.5;
-const MAX_SCALE: f64 = 0.8;
-
-pub fn get_state(cursor: [f64; 2]) -> Root {
-    let n: u32 = 3;
-    let shift = 0.5;
-    let max_grow = MAX_SCALE - MIN_SCALE;
-    let x = f64::min(1.0, f64::max(0.0, cursor[0] as f64));
-    let y = f64::min(1.0, f64::max(0.0, cursor[1] as f64));
-    let scale = MIN_SCALE + y * max_grow;
-    let sm = Similarity2::from_scaling(scale);
-
-    let mut va = (0..n)
+pub fn get_state(settings: ui::Settings) -> Root {
+    let sm = Similarity2::from_scaling(settings.scale);
+    let va = (0..settings.n)
         .map(|i| {
-            let offset = Rotation2::new(std::f64::consts::PI * 2.0 * f64::from(i) / f64::from(n))
-                * Point2::new(shift, 0.0);
+            let offset =
+                Rotation2::new(std::f64::consts::PI * 2.0 * f64::from(i) / f64::from(settings.n))
+                    * Point2::new(1.0, 0.0);
             na::convert::<_, Affine2<f64>>(sm * Translation2::new(offset.x, offset.y))
-                * Rotation2::new(x)
+                * Rotation2::new(settings.rotation as f64)
         })
         .collect::<Vec<Affine2<f64>>>();
-
-    va[0] *= Rotation2::new(y);
-    va[1] *= Rotation2::new(x);
 
     Root::new(va)
 }
@@ -110,6 +98,7 @@ pub fn get_state(cursor: [f64; 2]) -> Root {
 async fn run(event_loop: EventLoop<Event2>, window: Window) {
     let mut started = std::time::Instant::now();
     let mut frame_count = 0u64;
+    let mut recent_frme_rate: f64 = 0.0;
 
     let size: PhysicalSize<u32> = window.inner_size();
     // Backend "all" does not appear to be preferring VULKAN in wgpu 0.13, so use VULKAN explicitly for now.
@@ -176,17 +165,19 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
 
     // let start_time = Instant::now();
 
+    let mut ui_settings = ui::Settings {
+        n: 3,
+        scale: 0.5,
+        rotation: 0.1,
+        busy_loop: false,
+    };
+
     let mut db = wgpu_render::DatabaseStruct::default();
-    db.set_cursor((), [0.0, 0.0]);
+    db.set_config((), ui_settings.clone());
     db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
     db.set_device_with_durability((), Rc::new(device), salsa::Durability::HIGH);
     db.set_queue_with_durability((), Rc::new(queue), salsa::Durability::HIGH);
     db.set_swapchain_format_with_durability((), DebugIt(surface_format), salsa::Durability::HIGH);
-
-    let mut ui_settings = ui::Settings {
-        angle: 0.5f32,
-        levels: 5,
-    };
 
     event_loop.run(move |event, _, control_flow| {
         // Have the closure take ownership of the resources.
@@ -216,10 +207,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
-                db.set_cursor(
-                    (),
-                    [f64::from(ui_settings.angle), f64::from(ui_settings.angle)],
-                );
+                db.set_config((), ui_settings.clone());
 
                 let device = &mut db.device(());
                 let queue = &mut db.queue(());
@@ -232,13 +220,9 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                     render(&db, &output_texture, &mut encoder);
 
                     frame_count += 1;
-                    if frame_count % 100 == 0 {
-                        let elapsed = started.elapsed();
-                        log::error!(
-                            "Frame Time: {:?}. FPS: {:.3}",
-                            elapsed / frame_count as u32,
-                            frame_count as f64 / elapsed.as_secs_f64()
-                        );
+                    let elapsed = started.elapsed();
+                    if elapsed.as_secs_f64() > 0.25 {
+                        recent_frme_rate = elapsed.as_secs_f64() / frame_count as f64;
                         started = std::time::Instant::now();
                         frame_count = 0;
                     }
@@ -251,7 +235,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                     let input = state.take_egui_input(&window);
                     context.begin_frame(input);
 
-                    ui::update(&context, &mut ui_settings);
+                    ui::update(&context, &mut ui_settings, recent_frme_rate);
 
                     // End the UI frame. We could now handle the output and draw the UI with the backend.
                     let output = context.end_frame();
@@ -287,9 +271,11 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
 
                 output_texture.present()
             }
-            // Event::MainEventsCleared => {
-            //     window.request_redraw(); // Enable to busy loop
-            // }
+            Event::MainEventsCleared => {
+                if ui_settings.busy_loop {
+                    window.request_redraw(); // Enable to busy loop
+                }
+            }
             Event::WindowEvent { event, .. } => {
                 // Ideally we would only request redraw if needed, not on every event,
                 // but its unclear how to tell when its safe to skip this.

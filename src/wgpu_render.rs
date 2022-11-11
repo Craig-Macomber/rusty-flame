@@ -5,7 +5,7 @@ use winit::dpi::PhysicalSize;
 use crate::{
     accumulate::{self, AccumulateStorage, Accumulator},
     flame::Root,
-    get_state, postprocess,
+    get_state, postprocess, ui,
     util_types::{DebugIt, PtrRc},
 };
 
@@ -27,7 +27,7 @@ pub trait Inputs: salsa::Database {
     fn device(&self, key: ()) -> Rc<Device>;
 
     #[salsa::input]
-    fn cursor(&self, key: ()) -> [f64; 2];
+    fn config(&self, key: ()) -> ui::Settings;
 }
 
 #[salsa::query_group(RendererStorage)]
@@ -59,7 +59,7 @@ pub struct DatabaseStruct {
 impl salsa::Database for DatabaseStruct {}
 
 fn root(db: &dyn Renderer, (): ()) -> Root {
-    get_state(db.cursor(()))
+    get_state(db.config(()))
 }
 
 pub fn render(
