@@ -166,7 +166,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
     // let start_time = Instant::now();
 
     let mut ui_settings = ui::Settings {
-        n: 3,
+        n: 5,
         scale: 0.5,
         rotation: 0.1,
         busy_loop: false,

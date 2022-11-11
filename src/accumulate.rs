@@ -266,13 +266,19 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
     let fill_area = fill_ratio * width_to_fill * height_to_fill;
 
     // TODO: reasonable cost function
-    let passes: u32 = if fill_area > 1024.0 * 1024.0 {
+    let mut passes: u32 = if fill_area > 1024.0 * 1024.0 {
         2
     } else if fill_area > 256.0 * 256.0 {
         6
     } else {
         8
     };
+
+    // Avoid buffers being too large
+    const BUFFER_LIMIT: u32 = 512;
+    while passes > 2 && db.config(()).n.pow(passes / 2) > BUFFER_LIMIT {
+        passes -= 1;
+    }
 
     let sf = sf_min.powi(passes as i32);
 
