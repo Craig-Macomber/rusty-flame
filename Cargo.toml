@@ -2,8 +2,7 @@
 name = "rusty-flame"
 version = "0.1.0"
 authors = ["Craig Macomber <CraigM@CraigM.info>"]
-edition = "2018"
-resolver = "2"
+edition = "2021"
 
 [dependencies]
 nalgebra = "0.31.0"
