@@ -5,7 +5,7 @@ use winit::dpi::PhysicalSize;
 use crate::{
     accumulate::{self, AccumulateStorage, Accumulator},
     flame::Root,
-    get_state, postprocess, ui,
+    postprocess, ui,
     util_types::{DebugIt, PtrRc},
 };
 
@@ -59,7 +59,7 @@ pub struct DatabaseStruct {
 impl salsa::Database for DatabaseStruct {}
 
 fn root(db: &dyn Renderer, (): ()) -> Root {
-    get_state(db.config(()))
+    db.config(()).get_state()
 }
 
 pub fn render(

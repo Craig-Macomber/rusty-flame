@@ -80,21 +80,6 @@ pub fn main() {
     }
 }
 
-pub fn get_state(settings: ui::Settings) -> Root {
-    let sm = Similarity2::from_scaling(settings.scale);
-    let va = (0..settings.n)
-        .map(|i| {
-            let offset =
-                Rotation2::new(std::f64::consts::PI * 2.0 * f64::from(i) / f64::from(settings.n))
-                    * Point2::new(1.0, 0.0);
-            na::convert::<_, Affine2<f64>>(sm * Translation2::new(offset.x, offset.y))
-                * Rotation2::new(settings.rotation as f64)
-        })
-        .collect::<Vec<Affine2<f64>>>();
-
-    Root::new(va)
-}
-
 async fn run(event_loop: EventLoop<Event2>, window: Window) {
     let mut started = std::time::Instant::now();
     let mut frame_count = 0u64;
@@ -165,12 +150,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
 
     // let start_time = Instant::now();
 
-    let mut ui_settings = ui::Settings {
-        n: 5,
-        scale: 0.5,
-        rotation: 0.1,
-        busy_loop: false,
-    };
+    let mut ui_settings = ui::Settings::default();
 
     let mut db = wgpu_render::DatabaseStruct::default();
     db.set_config((), ui_settings.clone());

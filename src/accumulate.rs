@@ -275,7 +275,7 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
     };
 
     // Avoid buffers being too large
-    const BUFFER_LIMIT: u32 = 512;
+    const BUFFER_LIMIT: usize = 512;
     while passes > 2 && db.config(()).n.pow(passes / 2) > BUFFER_LIMIT {
         passes -= 1;
     }
