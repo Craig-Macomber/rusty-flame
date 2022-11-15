@@ -74,7 +74,7 @@ fn affine_editor(ui: &mut Ui, p: &mut Point) -> egui::InnerResponse<()> {
 }
 
 fn vec_editor(ui: &mut Ui, p: &mut Vector2<f64>) -> egui::InnerResponse<()> {
-    ui.group(|ui: &mut Ui| {
+    ui.horizontal(|ui: &mut Ui| {
         ui.label("X:");
         ui.add(
             egui::DragValue::new(&mut p.x)
