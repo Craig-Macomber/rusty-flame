@@ -190,10 +190,12 @@ pub fn render(
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                store: true,
+                store: wgpu::StoreOp::Store,
             },
         })],
         depth_stencil_attachment: None,
+        occlusion_query_set: None,
+        timestamp_writes: None,
     });
 
     postprocess_pass.set_pipeline(&data.pipeline);
