@@ -10,21 +10,37 @@ log = { version = "0.4.17", features = [
     "max_level_warn",
     "release_max_level_info",
 ] }
-wgpu = "0.14.0"
-winit = "0.27.2"
+winit = "0.28.7"
 pollster = "0.2.5"
 bytemuck = { version = "1.10.0", features = ["derive"] }
 image = { version = "0.24.2", default-features = false, features = ["png"] }
 salsa = "0.16.1"
 num = { version = "0.4.0", default-features = false, features = [] }
+egui = { version = "0.22.0", features = ["bytemuck"] }
 
-egui = { version = "0.19", features = ["bytemuck"] }
-epi = "0.17.0"
-egui_wgpu_backend = "0.20.0"
-egui-winit = "0.19.0"
-
-# [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # wgpu-subscriber = "0.1.0"
+egui_wgpu_backend = "0.25"
+egui_winit_platform = "0.19"
+wgpu = "0.17"
+
+# [target.'cfg(target_arch = "wasm32")'.dependencies]
+# console_error_panic_hook = "0.1"
+# console_log = "1.0"
+# egui_wgpu_backend = { version = "0.25", features = ["web"] }
+# egui_winit_platform = { version = "0.19", features = ["webbrowser"] }
+# getrandom = { version = "0.2", features = ["js"] }
+# wasm-bindgen = "=0.2.89"
+# wasm-bindgen-futures = "0.4"
+# wasm-cookies = "0.2"
+# wasm_thread = { version = "0.2", features = ["es_modules"] }
+# web-sys = { version = "0.3", features = [
+#     "Document",
+#     "Window",
+#     "Element",
+#     "Location",
+# ] }
+# wgpu = { version = "0.17", features = ["webgl"] }
 
 [profile.dev]
 opt-level = 1

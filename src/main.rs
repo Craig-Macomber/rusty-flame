@@ -2,7 +2,9 @@
 
 extern crate nalgebra as na;
 
+use egui::{FontDefinitions, Style};
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
+use egui_winit_platform::{Platform, PlatformDescriptor};
 use winit::event::Event::*;
 
 use std::rc::Rc;
@@ -32,20 +34,6 @@ mod wgpu_render;
 /// A custom event type for the winit app.
 enum Event2 {
     RequestRedraw,
-}
-
-/// This is the repaint signal type that egui needs for requesting a repaint from another thread.
-/// It sends the custom RequestRedraw event to the winit event loop.
-struct ExampleRepaintSignal(std::sync::Mutex<winit::event_loop::EventLoopProxy<Event2>>);
-
-impl epi::backend::RepaintSignal for ExampleRepaintSignal {
-    fn request_repaint(&self) {
-        self.0
-            .lock()
-            .unwrap()
-            .send_event(Event2::RequestRedraw)
-            .ok();
-    }
 }
 
 pub fn main() {
@@ -87,9 +75,9 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
 
     let size: PhysicalSize<u32> = window.inner_size();
     // Backend "all" does not appear to be preferring VULKAN in wgpu 0.13, so use VULKAN explicitly for now.
-    let instance = wgpu::Instance::new(wgpu::Backends::VULKAN);
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default()); //  backend: wgpu::InstanceDescriptor::VULKAN
     dbg!(&instance);
-    let surface = unsafe { instance.create_surface(&window) };
+    let surface = unsafe { instance.create_surface(&window) }.unwrap();
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -125,7 +113,13 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
         .await
         .expect("Failed to create device");
 
-    let surface_format = surface.get_supported_formats(&adapter)[0];
+    let surface_caps = surface.get_capabilities(&adapter);
+    let surface_format = surface_caps
+        .formats
+        .iter()
+        .copied()
+        .find(|f| f.is_srgb())
+        .unwrap_or(surface_caps.formats[0]);
 
     let mut surface_config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -134,13 +128,19 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
         height: size.height,
         present_mode: wgpu::PresentMode::Mailbox,
         alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+        view_formats: vec![],
     };
 
     surface.configure(&device, &surface_config);
 
-    // We use the `egui-winit` crate to handle integration with wgpu, and create the runtime context
-    let mut state = egui_winit::State::new(&event_loop);
-    let context = egui::Context::default();
+    // We use the `egui_winit_platform` crate to handle integration with wgpu, and create the runtime context
+    let mut egui_platform = Platform::new(PlatformDescriptor {
+        physical_width: window.inner_size().width,
+        physical_height: window.inner_size().height,
+        scale_factor: window.scale_factor(),
+        font_definitions: FontDefinitions::default(),
+        style: Style::default(),
+    });
 
     // We use the egui_wgpu_backend crate as the render backend.
     let mut egui_rpass = RenderPass::new(&device, surface_format, 1);
@@ -166,6 +166,10 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
         // let _ = (&device, &queue, &instance, &adapter, &renderer);
 
         *control_flow = ControlFlow::Wait;
+
+        let exclusive = egui_platform.captures_event(&event);
+        egui_platform.handle_event(&event);
+
         match event {
             // Event::WindowEvent {
             //     event: WindowEvent::CursorMoved { position, .. },
@@ -212,14 +216,13 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                         .create_view(&wgpu::TextureViewDescriptor::default());
 
                     // Draw UI
-                    let input = state.take_egui_input(&window);
-                    context.begin_frame(input);
+                    egui_platform.begin_frame();
 
-                    ui::update(&context, &mut ui_settings, recent_frme_rate);
+                    ui::update(&egui_platform.context(), &mut ui_settings, recent_frme_rate);
 
                     // End the UI frame. We could now handle the output and draw the UI with the backend.
-                    let output = context.end_frame();
-                    let paint_jobs = context.tessellate(output.shapes);
+                    let output = egui_platform.end_frame(Some(&window));
+                    let paint_jobs = egui_platform.context().tessellate(output.shapes);
 
                     // Upload all resources for the GPU.
                     let screen_descriptor = ScreenDescriptor {
@@ -262,7 +265,6 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                 window.request_redraw();
 
                 // Pass the winit events to the platform integration.
-                let exclusive = state.on_event(&context, &event);
                 // state.on_event returns true when the event has already been handled by egui and shouldn't be passed further
                 if !exclusive {
                     match event {

@@ -385,6 +385,7 @@ fn make_pass(
         format: TextureFormat::R32Float,
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
         label: Some(&accumulate.name),
+        view_formats: &vec![],
     });
 
     let view: wgpu::TextureView = texture.create_view(&TextureViewDescriptor::default());
