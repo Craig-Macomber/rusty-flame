@@ -92,7 +92,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
+            power_preference: wgpu::PowerPreference::HighPerformance,
             // Request an adapter which can render to our surface
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
