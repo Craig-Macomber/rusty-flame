@@ -31,7 +31,7 @@ var r_gradient: texture_1d<f32>;
 var r_gradient_sampler: sampler;
 
 @fragment
-fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // TODO: non-filtered interger sampler?
     var tex: vec4<f32> = textureSample(r_color, r_sampler, in.tex_coord);
     var v: f32 = tex.x;
