@@ -1,7 +1,5 @@
-use std::convert::TryFrom;
-
 use crate::flame::Root;
-use egui::{InnerResponse, Response, Ui};
+use egui::Ui;
 use na::{Affine2, Point2, Rotation2, SMatrix, Similarity2, Translation2, Vector2};
 
 #[derive(Clone, Debug, PartialEq)]

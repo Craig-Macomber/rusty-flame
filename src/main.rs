@@ -1,16 +1,14 @@
 #![warn(unused_extern_crates)]
 
 extern crate nalgebra as na;
-
 use egui::{FontDefinitions, Style};
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
 use egui_winit_platform::{Platform, PlatformDescriptor};
-use winit::event::Event::*;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 use std::rc::Rc;
 
-use crate::flame::Root;
-use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 use util_types::DebugIt;
 use wgpu_render::{render, Inputs, Inputs2};
 use winit::{
@@ -20,6 +18,10 @@ use winit::{
     window::Window,
     window::WindowBuilder,
 };
+#[cfg(target_arch = "wasm32")]
+extern crate console_error_panic_hook;
+use std::panic;
+
 mod accumulate;
 pub mod fixed_point;
 mod flame;
@@ -31,9 +33,10 @@ mod ui;
 mod util_types;
 mod wgpu_render;
 
-/// A custom event type for the winit app.
-enum Event2 {
-    RequestRedraw,
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn wasm_run() {
+    main();
 }
 
 pub fn main() {
@@ -68,8 +71,8 @@ pub fn main() {
     }
 }
 
-async fn run(event_loop: EventLoop<Event2>, window: Window) {
-    let mut started = std::time::Instant::now();
+async fn run(event_loop: EventLoop<()>, window: Window) {
+    let mut started = wasm_timer::Instant::now();
     let mut frame_count = 0u64;
     let mut recent_frme_rate: f64 = 0.0;
 
@@ -99,6 +102,54 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
         panic!("This app depends on R32Float blending which is not supported")
     }
 
+    let mut limits: wgpu::Limits = wgpu::Limits::default();
+    // {
+    //     max_texture_dimension_1d: 8192,
+    //     max_texture_dimension_2d: 8192,
+    //     max_texture_dimension_3d: 2048,
+    //     max_texture_array_layers: 256,
+    //     max_bind_groups: 4,
+    //     max_bindings_per_bind_group: 1000,
+    //     max_dynamic_uniform_buffers_per_pipeline_layout: 8,
+    //     max_dynamic_storage_buffers_per_pipeline_layout: 4,
+    //     max_sampled_textures_per_shader_stage: 16,
+    //     max_samplers_per_shader_stage: 16,
+    //     max_storage_buffers_per_shader_stage: 8,
+    //     max_storage_textures_per_shader_stage: 4,
+    //     max_uniform_buffers_per_shader_stage: 12,
+    //     max_uniform_buffer_binding_size: 64 << 10,
+    //     max_storage_buffer_binding_size: 128 << 20,
+    //     max_vertex_buffers: 8,
+    //     max_buffer_size: 256 << 20,
+    //     max_vertex_attributes: 16,
+    //     max_vertex_buffer_array_stride: 2048,
+    //     min_uniform_buffer_offset_alignment: 256,
+    //     min_storage_buffer_offset_alignment: 256,
+    //     max_inter_stage_shader_components: 60,
+    //     max_compute_workgroup_storage_size: 16384,
+    //     max_compute_invocations_per_workgroup: 256,
+    //     max_compute_workgroup_size_x: 256,
+    //     max_compute_workgroup_size_y: 256,
+    //     max_compute_workgroup_size_z: 64,
+    //     max_compute_workgroups_per_dimension: 65535,
+    //     max_push_constant_size: 0,
+    //     max_non_sampler_bindings: 1_000_000,
+    // };
+
+    // Lower limits to work on webgl based on testing in Firefox
+    {
+        limits.max_compute_workgroups_per_dimension = 0; // 65535,
+        limits.max_compute_workgroup_size_z = 0; // 64,
+        limits.max_compute_workgroup_size_y = 0; // 256,
+        limits.max_compute_workgroup_size_x = 0; //  256,
+        limits.max_compute_invocations_per_workgroup = 0; // 256,
+        limits.max_compute_workgroup_storage_size = 0; // 16384
+        limits.max_storage_buffer_binding_size = 0; // 128 << 20,
+        limits.max_storage_textures_per_shader_stage = 0; // 4,
+        limits.max_storage_buffers_per_shader_stage = 0; // 8,
+        limits.max_dynamic_storage_buffers_per_pipeline_layout = 0; // 4,
+    }
+
     // Create the logical device and command queue
     let (device, queue) = adapter
         .request_device(
@@ -106,7 +157,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                 label: None,
                 // Enable nonstandard features
                 features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-                limits: wgpu::Limits::default(),
+                limits,
             },
             None,
         )
@@ -126,6 +177,9 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
         format: surface_format,
         width: size.width,
         height: size.height,
+        #[cfg(target_arch = "wasm32")]
+        present_mode: wgpu::PresentMode::Fifo,
+        #[cfg(not(target_arch = "wasm32"))]
         present_mode: wgpu::PresentMode::Mailbox,
         alpha_mode: wgpu::CompositeAlphaMode::Opaque,
         view_formats: vec![],
@@ -187,9 +241,6 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
             //     );
             //     window.request_redraw();
             // }
-            UserEvent(Event2::RequestRedraw) => {
-                window.request_redraw();
-            }
             Event::RedrawRequested(_) => {
                 db.set_config((), ui_settings.clone());
 
@@ -207,7 +258,7 @@ async fn run(event_loop: EventLoop<Event2>, window: Window) {
                     let elapsed = started.elapsed();
                     if elapsed.as_secs_f64() > 0.25 {
                         recent_frme_rate = elapsed.as_secs_f64() / frame_count as f64;
-                        started = std::time::Instant::now();
+                        started = wasm_timer::Instant::now();
                         frame_count = 0;
                     }
 

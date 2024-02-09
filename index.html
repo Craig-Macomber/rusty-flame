@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8" />
+    <title>rusty-flame</title>
+  </head>
+  <body>
+    <script type="module">
+      import init, { wasm_run } from "./pkg/rusty_flame.js";
+      init().then(() => {
+        wasm_run();
+      });
+    </script>
+  </body>
+</html>

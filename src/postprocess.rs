@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 use wgpu::{
     AddressMode, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BindingResource,
-    BindingType, FilterMode, PipelineLayoutDescriptor, SamplerDescriptor, ShaderModule,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureAspect, TextureDescriptor,
-    TextureFormat, TextureSampleType, TextureUsages, TextureViewDescriptor, TextureViewDimension,
+    BindingType, FilterMode, PipelineLayoutDescriptor, SamplerDescriptor, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, TextureAspect, TextureDescriptor, TextureFormat, TextureSampleType,
+    TextureUsages, TextureViewDescriptor, TextureViewDimension,
 };
 
 use crate::{
@@ -13,7 +13,6 @@ use crate::{
 /// Device dependant, but otherwise constant data.
 #[derive(Debug)]
 pub struct Data {
-    shader: ShaderModule,
     gradient_bind_group: wgpu::BindGroup,
     quad: MeshData,
     pipeline: wgpu::RenderPipeline,
@@ -166,7 +165,6 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
     });
 
     Data {
-        shader,
         gradient_bind_group,
         quad: MeshData::new(&device, &build_quad(), "Quad Vertex Buffer"),
         pipeline,
