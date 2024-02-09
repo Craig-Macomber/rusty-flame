@@ -2,6 +2,8 @@
 
 GPU accelerated fractal flame generator written in rust.
 
+[Web build](https://craig-macomber.github.io/rusty-flame/).
+
 Goal is to get high quality 4k 60fps interactive rendering of as many fractal flames as possible. Difficulty varies wildly depending on the fractal, but there are several tricks that can enable a wide variety to be rendered well. Currently, just affine transforms are supported with density based coloring. Other kinds of transforms and coloring will be explored in the future.
 
 Planned rendering algorithm is:
