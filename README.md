@@ -48,3 +48,15 @@ Features I'd like to implement:
 Some deep transitive dependencies appear to require these packages to be installed:
 
 `sudo apt install pkg-config cmake libfontconfig1-dev`
+
+# Debugging Web Build
+
+`wasm-pack build --debug --target web` (can install wasm-pack with `cargo install wasm-pack`).
+
+Use [Chrome and its extension](https://github.com/rustwasm/book/pull/321/changes).
+
+Start the server with: `python3 -m http.server`
+
+Navigate to URL server lists in its output (likely [http://0.0.0.0:8000/](http://0.0.0.0:8000/)).
+
+For WASM specific development, enabling `"rust-analyzer.cargo.target": "wasm32-unknown-unknown",` in [.vscode/settings.json](.vscode/settings.json) can be helpful.
