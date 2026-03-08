@@ -12,7 +12,7 @@ use std::rc::Rc;
 use util_types::DebugIt;
 use wgpu_render::{render, Inputs, Inputs2};
 use winit::{
-    dpi::{PhysicalSize, Size},
+    dpi::PhysicalSize,
     event::Event,
     event_loop::{ControlFlow, EventLoop},
     window::Window,
@@ -41,14 +41,14 @@ pub fn wasm_run() {
 
 pub fn main() {
     let event_loop = winit::event_loop::EventLoopBuilder::with_user_event().build();
-    let window = WindowBuilder::new()
-        .with_inner_size(Size::Physical((3000, 2000).into()))
-        .with_title("Rusty Flame")
-        .build(&event_loop)
-        .unwrap();
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let window = WindowBuilder::new()
+            .with_inner_size(Size::Physical((3000, 2000).into()))
+            .with_title("Rusty Flame")
+            .build(&event_loop)
+            .unwrap();
         // wgpu_subscriber::initialize_default_subscriber(None);
         // Temporarily avoid srgb formats for the swapchain on the web
         pollster::block_on(run(event_loop, window));
@@ -57,16 +57,19 @@ pub fn main() {
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         console_log::init().expect("could not initialize logger");
-        use winit::platform::web::WindowExtWebSys;
-        // On wasm, append the canvas to the document body
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| doc.body())
-            .and_then(|body| {
-                body.append_child(&web_sys::Element::from(window.canvas()))
-                    .ok()
-            })
-            .expect("couldn't append canvas to document body");
+        use winit::platform::web::WindowBuilderExtWebSys;
+
+        let doc = web_sys::window().and_then(|win| win.document()).unwrap();
+
+        // On wasm, attach to the `main-canvas` element.
+        let canvas = doc.get_element_by_id("main-canvas").unwrap();
+        let canvas = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
+        let window = WindowBuilder::new()
+            .with_title("Rusty Flame")
+            .with_canvas(Some(canvas))
+            // .with_resizable(true)
+            .build(&event_loop)
+            .unwrap();
         wasm_bindgen_futures::spawn_local(run(event_loop, window));
     }
 }
@@ -103,38 +106,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     }
 
     let mut limits: wgpu::Limits = wgpu::Limits::default();
-    // {
-    //     max_texture_dimension_1d: 8192,
-    //     max_texture_dimension_2d: 8192,
-    //     max_texture_dimension_3d: 2048,
-    //     max_texture_array_layers: 256,
-    //     max_bind_groups: 4,
-    //     max_bindings_per_bind_group: 1000,
-    //     max_dynamic_uniform_buffers_per_pipeline_layout: 8,
-    //     max_dynamic_storage_buffers_per_pipeline_layout: 4,
-    //     max_sampled_textures_per_shader_stage: 16,
-    //     max_samplers_per_shader_stage: 16,
-    //     max_storage_buffers_per_shader_stage: 8,
-    //     max_storage_textures_per_shader_stage: 4,
-    //     max_uniform_buffers_per_shader_stage: 12,
-    //     max_uniform_buffer_binding_size: 64 << 10,
-    //     max_storage_buffer_binding_size: 128 << 20,
-    //     max_vertex_buffers: 8,
-    //     max_buffer_size: 256 << 20,
-    //     max_vertex_attributes: 16,
-    //     max_vertex_buffer_array_stride: 2048,
-    //     min_uniform_buffer_offset_alignment: 256,
-    //     min_storage_buffer_offset_alignment: 256,
-    //     max_inter_stage_shader_components: 60,
-    //     max_compute_workgroup_storage_size: 16384,
-    //     max_compute_invocations_per_workgroup: 256,
-    //     max_compute_workgroup_size_x: 256,
-    //     max_compute_workgroup_size_y: 256,
-    //     max_compute_workgroup_size_z: 64,
-    //     max_compute_workgroups_per_dimension: 65535,
-    //     max_push_constant_size: 0,
-    //     max_non_sampler_bindings: 1_000_000,
-    // };
 
     // Lower limits to work on webgl based on testing in Firefox
     {
@@ -316,7 +287,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 window.request_redraw();
 
                 // Pass the winit events to the platform integration.
-                // state.on_event returns true when the event has already been handled by egui and shouldn't be passed further
                 if !exclusive {
                     match event {
                         winit::event::WindowEvent::Resized(size) => {
@@ -332,6 +302,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                                     size,
                                     salsa::Durability::MEDIUM,
                                 );
+
+                                // TODO: resize to window on wasm
                             }
                         }
                         winit::event::WindowEvent::CloseRequested => {

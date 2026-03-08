@@ -37,7 +37,7 @@ console_error_panic_hook = "0.1"
 console_log = "1.0"
 egui_wgpu_backend = { version = "0.27.0", features = ["web"] }
 egui_winit_platform = { version = "0.20.0", features = ["webbrowser"] }
-wasm-bindgen = "=0.2.89"
+wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "Document",
@@ -49,3 +49,6 @@ wgpu = { version = "0.18.0", features = ["webgl"] }
 
 [profile.dev]
 opt-level = 1
+
+[package.metadata.wasm-pack]
+# wasm-opt = false
