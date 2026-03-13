@@ -35,7 +35,7 @@ pub fn update(ctx: &egui::Context, setting: &mut Settings, frame_time: f64) {
             ui.label("Scale:");
             ui.add(
                 egui::DragValue::new(&mut setting.scale)
-                    .clamp_range(-0.8..=0.8)
+                    .range(-0.8..=0.8)
                     .speed(0.0005),
             );
         } else {
@@ -76,13 +76,13 @@ fn vec_editor(ui: &mut Ui, p: &mut Vector2<f64>) -> egui::InnerResponse<()> {
         ui.label("X:");
         ui.add(
             egui::DragValue::new(&mut p.x)
-                .clamp_range(-2.0..=2.0)
+                .range(-2.0..=2.0)
                 .speed(0.001),
         );
         ui.label("Y:");
         ui.add(
             egui::DragValue::new(&mut p.y)
-                .clamp_range(-2.0..=2.0)
+                .range(-2.0..=2.0)
                 .speed(0.001),
         );
     })

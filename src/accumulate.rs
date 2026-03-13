@@ -1,11 +1,9 @@
 use num::rational::Ratio;
 use std::borrow::Cow;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry,
-    BindingResource, BindingType, Extent3d, FilterMode, PipelineLayoutDescriptor,
-    SamplerDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    TextureDescriptor, TextureFormat, TextureSampleType, TextureUsages, TextureViewDescriptor,
-    TextureViewDimension,
+    BindGroup, BindGroupLayout, BindGroupLayoutEntry, BindingType, Extent3d, FilterMode,
+    PipelineLayoutDescriptor, SamplerDescriptor, ShaderModule, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, TextureFormat, TextureSampleType, TextureUsages,
 };
 use winit::dpi::PhysicalSize;
 
@@ -146,7 +144,7 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
                             multisampled: false,
                             // R32Float textures to not support filtering be default: requires native feature opt-in.
                             sample_type: TextureSampleType::Float { filterable: true },
-                            view_dimension: TextureViewDimension::D2,
+                            view_dimension: wgpu::TextureViewDimension::D2,
                         },
                         count: None,
                     },
@@ -206,14 +204,16 @@ impl Pass {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
                 },
+                depth_slice: None,
             })],
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
         render_pass.set_pipeline(&self.pipeline);
         if let Some(b) = &smaller {
-            render_pass.set_bind_group(0, b, &[])
+            render_pass.set_bind_group(0, b as &wgpu::BindGroup, &[])
         };
 
         render_pass.set_vertex_buffer(0, instances.buffer.slice(..));
@@ -332,12 +332,13 @@ fn make_pass(
     let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("accumulation pipeline"),
         bind_group_layouts: if smaller.is_some() { groups } else { &[] },
-        push_constant_ranges: &[],
+        immediate_size: Default::default(),
     });
 
     let vertex_shader = wgpu::VertexState {
         module: &data.shader,
-        entry_point: "vs_main",
+        entry_point: Some("vs_main"),
+        compilation_options: Default::default(),
         buffers: &[
             wgpu::VertexBufferLayout {
                 array_stride: 2 * 4 * 4,
@@ -359,23 +360,25 @@ fn make_pass(
         fragment: Some(wgpu::FragmentState {
             module: &data.shader,
             entry_point: if smaller.is_some() {
-                "fs_main_textured"
+                Some("fs_main_textured")
             } else {
-                "fs_main"
+                Some("fs_main")
             },
+            compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format: TextureFormat::R32Float,
                 blend: Some(blend_state_add),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
+        cache: None,
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
     });
 
-    let texture: wgpu::Texture = device.create_texture(&TextureDescriptor {
+    let texture: wgpu::Texture = device.create_texture(&wgpu::TextureDescriptor {
         size: Extent3d {
             width: accumulate.size.width,
             height: accumulate.size.height,
@@ -387,28 +390,30 @@ fn make_pass(
         format: TextureFormat::R32Float,
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
         label: Some(&accumulate.name),
-        view_formats: &vec![],
+        view_formats: &[],
     });
 
-    let view: wgpu::TextureView = texture.create_view(&TextureViewDescriptor::default());
+    let mut desc = wgpu::TextureViewDescriptor::default();
+    desc.label = Some("make pass texture view");
+    let view: wgpu::TextureView = texture.create_view(&desc);
 
-    let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
+    let output_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("output bind group"),
         layout: &data.accumulation_bind_group_layout,
         entries: &[
-            BindGroupEntry {
+            wgpu::BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::TextureView(&view),
+                resource: wgpu::BindingResource::TextureView(&view),
             },
-            BindGroupEntry {
+            wgpu::BindGroupEntry {
                 binding: 1,
-                resource: BindingResource::Sampler(if filter {
+                resource: wgpu::BindingResource::Sampler(if filter {
                     &data.nearest_sampler
                 } else {
                     &data.accumulation_sampler
                 }),
             },
         ],
-        label: None,
     });
 
     Pass {

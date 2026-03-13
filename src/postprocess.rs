@@ -1,9 +1,11 @@
 use std::borrow::Cow;
+use wgpu::wgt::{MipmapFilterMode, TexelCopyTextureInfo};
 use wgpu::{
     AddressMode, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BindingResource,
-    BindingType, FilterMode, PipelineLayoutDescriptor, SamplerDescriptor, ShaderModuleDescriptor,
-    ShaderSource, ShaderStages, TextureAspect, TextureDescriptor, TextureFormat, TextureSampleType,
-    TextureUsages, TextureViewDescriptor, TextureViewDimension,
+    BindingType, Extent3d, FilterMode, Origin3d, PipelineLayoutDescriptor, SamplerDescriptor,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, TexelCopyBufferLayout, TextureAspect,
+    TextureDescriptor, TextureFormat, TextureSampleType, TextureUsages, TextureViewDescriptor,
+    TextureViewDimension,
 };
 
 use crate::{
@@ -35,7 +37,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
     use image::GenericImageView;
     let dimensions = gradient_image.dimensions();
 
-    let texture_size = wgpu::Extent3d {
+    let texture_size = Extent3d {
         width: dimensions.0,
         height: dimensions.1,
         depth_or_array_layers: 1,
@@ -49,18 +51,18 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
         format: TextureFormat::Rgba8UnormSrgb,
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         label: Some("gradient_texture"),
-        view_formats: &vec![],
+        view_formats: &[],
     });
 
     queue.write_texture(
-        wgpu::ImageCopyTexture {
+        TexelCopyTextureInfo {
             texture: &gradient_texture,
             mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
+            origin: Origin3d::ZERO,
             aspect: TextureAspect::All,
         },
         gradient_rgba,
-        wgpu::ImageDataLayout {
+        TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(4 * dimensions.0),
             rows_per_image: Some(dimensions.1),
@@ -75,7 +77,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
         address_mode_w: AddressMode::ClampToEdge,
         mag_filter: FilterMode::Linear,
         min_filter: FilterMode::Linear,
-        mipmap_filter: FilterMode::Linear, // TODO: mip map gradient
+        mipmap_filter: MipmapFilterMode::Linear, // TODO: mip map gradient
         ..Default::default()
     });
 
@@ -134,7 +136,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             &data.accumulation_bind_group_layout,
             &gradient_bind_group_layout,
         ],
-        push_constant_ranges: &[],
+        immediate_size: 0,
     });
 
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -142,26 +144,29 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
             buffers: &[wgpu::VertexBufferLayout {
                 array_stride: 2 * 2 * 4,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
             }],
         },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format: *db.swapchain_format(()),
                 blend: Some(blend_state_replace),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
+        cache: None,
     });
 
     Data {
@@ -190,10 +195,12 @@ pub fn render(
                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                 store: wgpu::StoreOp::Store,
             },
+            depth_slice: None,
         })],
         depth_stencil_attachment: None,
         occlusion_query_set: None,
         timestamp_writes: None,
+        multiview_mask: None,
     });
 
     postprocess_pass.set_pipeline(&data.pipeline);
