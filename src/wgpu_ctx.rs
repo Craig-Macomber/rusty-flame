@@ -58,12 +58,13 @@ impl<'window> WgpuCtx<'window> {
             .flags
             .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
         {
-            panic!("This app depends on R32Float blending which is not supported")
+            panic!("This app depends on R32Float filtering which is not supported")
         }
 
         let mut features = wgpu::Features::empty();
         // Enable nonstandard features
         features |= wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+        features |= wgpu::Features::FLOAT32_FILTERABLE;
 
         // Create the logical device and command queue
         let (device, queue) = adapter
@@ -219,7 +220,7 @@ impl<'window> WgpuCtx<'window> {
         WgpuCtx {
             surface,
             surface_config,
-            adapter,
+            // adapter,
             db,
             ui_settings,
             egui_platform,
