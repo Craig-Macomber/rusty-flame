@@ -1,21 +1,22 @@
 // https://github.com/w4ngzhen/wgpu_winit_example/blob/main/ch01_render_in_window/src/app.rs
 
 use crate::wgpu_ctx::WgpuCtx;
-use std::sync::Arc;
+use std::ops::DerefMut;
+use std::sync::{Arc, Mutex};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
-pub struct App<'window> {
+pub struct App {
     // Use an `Option` to allow the window to not be available until the
     // application is properly running.
     window: Option<Arc<Window>>,
-    wgpu_ctx: Option<WgpuCtx<'window>>,
+    wgpu_ctx: Arc<Mutex<Option<WgpuCtx>>>,
 }
 
-impl<'t> Default for App<'t> {
+impl Default for App {
     fn default() -> Self {
         Self {
             window: Default::default(),
@@ -24,7 +25,7 @@ impl<'t> Default for App<'t> {
     }
 }
 
-impl<'window> ApplicationHandler for App<'window> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let win_attr = Window::default_attributes()
@@ -49,8 +50,24 @@ impl<'window> ApplicationHandler for App<'window> {
                     .expect("create window err."),
             );
             self.window = Some(window.clone());
-            let wgpu_ctx = WgpuCtx::new(window.clone());
-            self.wgpu_ctx = Some(wgpu_ctx);
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let win2 = window.clone();
+                let ctx2 = self.wgpu_ctx.clone();
+                let fut = wasm_bindgen_futures::spawn_local((async move || {
+                    let wgpu_ctx = WgpuCtx::new_async(win2).await;
+                    let mut guard = ctx2.lock().unwrap();
+                    *guard = Some(wgpu_ctx);
+                })());
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let wgpu_ctx = WgpuCtx::new(window.clone());
+                let mut guard = self.wgpu_ctx.lock().unwrap();
+                *guard = Some(wgpu_ctx);
+            }
         }
     }
 
@@ -66,7 +83,8 @@ impl<'window> ApplicationHandler for App<'window> {
             }
             _ => (),
         }
-        if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
+        let mut guard = self.wgpu_ctx.lock().unwrap();
+        if let Some(wgpu_ctx) = guard.deref_mut() {
             wgpu_ctx.window_event(event_loop, event);
         }
     }
