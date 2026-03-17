@@ -9,6 +9,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
+#[derive(Default)]
 pub struct App {
     // Use an `Option` to allow the window to not be available until the
     // application is properly running.
@@ -16,14 +17,6 @@ pub struct App {
     wgpu_ctx: Arc<Mutex<Option<WgpuCtx>>>,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self {
-            window: Default::default(),
-            wgpu_ctx: Default::default(),
-        }
-    }
-}
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -77,11 +70,8 @@ impl ApplicationHandler for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        match event {
-            WindowEvent::CloseRequested => {
-                event_loop.exit();
-            }
-            _ => (),
+        if event == WindowEvent::CloseRequested {
+            event_loop.exit();
         }
         let mut guard = self.wgpu_ctx.lock().unwrap();
         if let Some(wgpu_ctx) = guard.deref_mut() {

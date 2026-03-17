@@ -124,7 +124,7 @@ impl Root {
         Root { storage }
     }
 
-    pub fn get_state(&self) -> AffineState {
+    pub fn get_state(&self) -> AffineState<'_> {
         AffineState::new(Affine2::<f64>::identity(), &self.storage)
     }
 }

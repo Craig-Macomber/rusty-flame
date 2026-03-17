@@ -57,7 +57,7 @@ fn bounds(db: &dyn Accumulator, (): ()) -> Rect {
 pub fn mesh(db: &dyn Accumulator, levels: u32) -> PtrRc<MeshData> {
     let bounds = db.bounds(());
     MeshData::new(
-        &*db.device(()),
+        &db.device(()),
         &build_mesh(&db.root(()), bounds, levels),
         "Vertex Buffer",
     )
@@ -94,7 +94,7 @@ pub fn instance(db: &dyn Accumulator, key: InstanceKey) -> PtrRc<MeshData> {
     );
 
     MeshData::new(
-        &*db.device(()),
+        &db.device(()),
         &build_instances(&db.root(()), rebox * root_mat, key.levels),
         "Instance Buffer",
     )

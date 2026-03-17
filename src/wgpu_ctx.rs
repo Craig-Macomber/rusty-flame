@@ -11,7 +11,7 @@ use winit::{
     event::{ElementState, KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow},
     keyboard::{Key, NamedKey},
-    window::{self, Window},
+    window::Window,
 };
 
 use crate::{
@@ -112,8 +112,8 @@ impl WgpuCtx {
 
         // We use the `egui_winit_platform` crate to handle integration with wgpu, and create the runtime context
         let egui_platform = egui_winit_platform::Platform::new(PlatformDescriptor {
-            physical_width: size.width as u32,
-            physical_height: size.height as u32,
+            physical_width: size.width,
+            physical_height: size.height,
             scale_factor: window.scale_factor(),
             font_definitions: FontDefinitions::default(),
             style: Style::default(),
@@ -272,8 +272,8 @@ impl WgpuCtx {
                     ..
                 } => {
                     let size = self.window.inner_size();
-                    let w = size.width.max(1);
-                    let h = size.height.max(1);
+                    let _w = size.width.max(1);
+                    let _h = size.height.max(1);
                     // if self.flag {
                     //     wgpu_ctx.resize((w, h));
                     // } else {

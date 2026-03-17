@@ -65,16 +65,16 @@ fn root(db: &dyn Renderer, (): ()) -> Root {
 pub fn render(
     db: &DatabaseStruct,
     frame: &wgpu::SurfaceTexture,
-    mut encoder: &mut wgpu::CommandEncoder,
+    encoder: &mut wgpu::CommandEncoder,
 ) {
     let accumulate = db.pass(accumulate::PassKey {
         resolution: db.window_size(()),
         filter: false,
     });
-    let bind_group = accumulate.render(db, &mut encoder);
+    let bind_group = accumulate.render(db, encoder);
     postprocess::render(
         db,
-        &mut encoder,
+        encoder,
         bind_group,
         &frame.texture.create_view(&TextureViewDescriptor::default()),
     );
