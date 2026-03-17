@@ -17,7 +17,6 @@ pub struct App {
     wgpu_ctx: Arc<Mutex<Option<WgpuCtx>>>,
 }
 
-
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
@@ -57,7 +56,7 @@ impl ApplicationHandler for App {
 
             #[cfg(not(target_arch = "wasm32"))]
             {
-                let wgpu_ctx = WgpuCtx::new(window.clone());
+                let wgpu_ctx = pollster::block_on(WgpuCtx::new_async(window));
                 let mut guard = self.wgpu_ctx.lock().unwrap();
                 *guard = Some(wgpu_ctx);
             }

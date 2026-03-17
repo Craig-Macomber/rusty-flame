@@ -155,10 +155,6 @@ impl WgpuCtx {
         }
     }
 
-    pub fn new(window: Arc<Window>) -> WgpuCtx {
-        pollster::block_on(WgpuCtx::new_async(window))
-    }
-
     fn resize(&mut self, new_size: (u32, u32)) {
         let (width, height) = new_size;
         self.surface_config.width = width.max(1);
