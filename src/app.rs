@@ -1,9 +1,8 @@
-// https://github.com/w4ngzhen/wgpu_winit_example/blob/main/ch01_render_in_window/src/app.rs
-
 use crate::wgpu_ctx::WgpuCtx;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 use winit::application::ApplicationHandler;
+#[cfg(not(target_arch = "wasm32"))]
 use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -11,8 +10,7 @@ use winit::window::{Window, WindowId};
 
 #[derive(Default)]
 pub struct App {
-    // Use an `Option` to allow the window to not be available until the
-    // application is properly running.
+    // Use an `Option` to allow the window to not be available until the application is properly running.
     window: Option<Arc<Window>>,
     wgpu_ctx: Arc<Mutex<Option<WgpuCtx>>>,
 }
@@ -20,9 +18,9 @@ pub struct App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            let win_attr = Window::default_attributes()
-                .with_title("Rusty Flame")
-                .with_inner_size(PhysicalSize::new(1200, 800));
+            let win_attr = Window::default_attributes().with_title("Rusty Flame");
+            #[cfg(not(target_arch = "wasm32"))]
+            let win_attr = win_attr.with_inner_size(PhysicalSize::new(1200, 800));
 
             // On wasm, attach to the `main-canvas` element.
             #[cfg(target_arch = "wasm32")]
