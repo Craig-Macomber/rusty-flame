@@ -13,7 +13,7 @@ use crate::{
     mesh::{build_instances, build_mesh},
     render_common::MeshData,
     util_types::PtrArc,
-    wgpu_render::{compute_postprocess, ComputedPostProcess, ComputedRoot, SalsaInputs},
+    wgpu_render::{ComputedRoot, SalsaInputs},
 };
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -130,8 +130,8 @@ pub struct PassKey {
 }
 
 #[salsa::tracked]
-pub fn data(db: &dyn salsa::Database, device: SalsaInputs) -> PtrArc<DeviceData> {
-    let device = device.device(db);
+pub fn data(db: &dyn salsa::Database, inputs: SalsaInputs) -> PtrArc<DeviceData> {
+    let device = inputs.device(db);
     DeviceData {
         // Load the shaders from disk
         shader: device.create_shader_module(ShaderModuleDescriptor {
@@ -188,7 +188,6 @@ impl Pass {
         db: &dyn salsa::Database,
         inputs: SalsaInputs,
         root: ComputedRoot,
-        data: ComputedPostProcess,
         encoder: &mut wgpu::CommandEncoder,
     ) -> &BindGroup {
         let vertexes = mesh(db, inputs, root, self.spec.mesh_levels());
@@ -211,10 +210,9 @@ impl Pass {
             None
         };
 
-        let post = compute_postprocess(db, inputs);
         let smaller = smaller_pass
             .as_ref()
-            .map(|b| b.render(db, inputs, root, post, encoder));
+            .map(|b| b.render(db, inputs, root, encoder));
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Accumulate"),

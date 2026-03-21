@@ -1,10 +1,8 @@
-// https://github.com/w4ngzhen/wgpu_winit_example/blob/main/ch01_render_in_window/src/wgpu_ctx.rs
-
 use egui::{FontDefinitions, Style};
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
 use egui_winit_platform::PlatformDescriptor;
 use salsa::{DatabaseImpl, Setter};
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 use wasm_timer::Instant;
 use wgpu::MemoryHints::Performance;
 use wgpu::Trace;
@@ -18,15 +16,12 @@ use winit::{
 use crate::{
     ui,
     util_types::DebugIt,
-    wgpu_render::{self, render, SalsaInputs},
+    wgpu_render::{render, SalsaInputs},
 };
 
 pub struct WgpuCtx {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
-    // adapter: wgpu::Adapter,
-    // device: wgpu::Device,
-    // queue: wgpu::Queue,
     started: Instant,
     frame_count: u64,
     recent_frame_rate: f64,

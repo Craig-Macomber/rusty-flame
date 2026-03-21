@@ -28,29 +28,6 @@ pub fn compute_root(db: &dyn salsa::Database, inputs: SalsaInputs) -> ComputedRo
     ComputedRoot::new(db, inputs.settings(db).get_state())
 }
 
-#[salsa::tracked]
-pub struct ComputedPostProcess<'db> {
-    pub data: postprocess::Data,
-}
-
-#[salsa::tracked]
-pub fn compute_postprocess(
-    db: &dyn salsa::Database,
-    inputs: SalsaInputs,
-) -> ComputedPostProcess<'_> {
-    ComputedPostProcess::new(db, postprocess::data(db, inputs))
-}
-
-// #[salsa::db]
-// #[derive(Clone)]
-// #[cfg_attr(not(test), derive(Default))]
-// pub struct DatabaseImpl {
-//     storage: salsa::Storage<Self>,
-// }
-
-// #[salsa::db]
-// impl salsa::Database for DatabaseImpl {}
-
 pub fn render(
     db: &dyn salsa::Database,
     inputs: SalsaInputs,
@@ -69,8 +46,7 @@ pub fn render(
             filter: false,
         },
     );
-    let post = compute_postprocess(db, inputs);
-    let bind_group = accumulate.render(db, inputs, root, post, encoder);
+    let bind_group = accumulate.render(db, inputs, root, encoder);
     postprocess::render(
         db,
         inputs,

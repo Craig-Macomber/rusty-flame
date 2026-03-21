@@ -1,6 +1,6 @@
 //! Misc wrapper types for providing Clone, Debug and Eq
 
-use std::{hash::Hash, ops::Deref, rc::Rc, sync::Arc};
+use std::{hash::Hash, ops::Deref, sync::Arc};
 
 #[derive(Debug, Clone)]
 /// Wrapper that provides Debug.

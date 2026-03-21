@@ -45,7 +45,7 @@ impl ApplicationHandler for App {
             {
                 let win2 = window.clone();
                 let ctx2 = self.wgpu_ctx.clone();
-                let fut = wasm_bindgen_futures::spawn_local((async move || {
+                wasm_bindgen_futures::spawn_local((async move || {
                     let wgpu_ctx = WgpuCtx::new_async(win2).await;
                     let mut guard = ctx2.lock().unwrap();
                     *guard = Some(wgpu_ctx);

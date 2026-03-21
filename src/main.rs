@@ -5,8 +5,6 @@ extern crate nalgebra as na;
 use wasm_bindgen::prelude::*;
 
 use winit::event_loop::{ControlFlow, EventLoop};
-#[cfg(target_arch = "wasm32")]
-extern crate console_error_panic_hook;
 
 mod accumulate;
 pub mod fixed_point;

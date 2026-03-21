@@ -8,23 +8,21 @@ use wgpu::{
     TextureViewDimension,
 };
 
-use crate::accumulate::{self, DeviceData};
-use crate::wgpu_render::{ComputedPostProcess, SalsaInputs};
-use crate::{mesh::build_quad, render_common::MeshData};
+use crate::{accumulate, mesh::build_quad, render_common::MeshData, wgpu_render::SalsaInputs};
 
 /// Device dependant, but otherwise constant data.
-#[derive(Debug, Hash, PartialEq, Clone)]
-pub struct Data {
+#[salsa::tracked]
+struct Data<'db> {
     gradient_bind_group: wgpu::BindGroup,
     quad: MeshData,
     pipeline: wgpu::RenderPipeline,
 }
 
 #[salsa::tracked]
-pub fn data(db: &dyn salsa::Database, salsa_device: SalsaInputs) -> Data {
-    let device = salsa_device.device(db);
-    let queue = salsa_device.queue(db);
-    let data = accumulate::data(db, salsa_device);
+fn data(db: &dyn salsa::Database, inputs: SalsaInputs) -> Data<'_> {
+    let device = inputs.device(db);
+    let queue = inputs.queue(db);
+    let data = accumulate::data(db, inputs);
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("postprocess.wgsl"),
@@ -161,7 +159,7 @@ pub fn data(db: &dyn salsa::Database, salsa_device: SalsaInputs) -> Data {
             entry_point: Some("fs_main"),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
-                format: *salsa_device.format(db),
+                format: *inputs.format(db),
                 blend: Some(blend_state_replace),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -170,16 +168,12 @@ pub fn data(db: &dyn salsa::Database, salsa_device: SalsaInputs) -> Data {
         cache: None,
     });
 
-    Data {
+    Data::new(
+        db,
         gradient_bind_group,
-        quad: MeshData::new(&device, &build_quad(), "Quad Vertex Buffer"),
+        MeshData::new(&device, &build_quad(), "Quad Vertex Buffer"),
         pipeline,
-    }
-}
-
-#[salsa::tracked]
-pub fn postprocess_data(db: &dyn salsa::Database, device: SalsaInputs) -> ComputedPostProcess<'_> {
-    ComputedPostProcess::new(db, data(db, device))
+    )
 }
 
 /// Draws a source accumulation texture into dst with log density coloring
@@ -190,7 +184,7 @@ pub fn render(
     src: &wgpu::BindGroup,
     dst: &wgpu::TextureView,
 ) {
-    let data = postprocess_data(db, device).data(db);
+    let data = data(db, device);
 
     let mut postprocess_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Postprocess render pass"),
@@ -209,9 +203,9 @@ pub fn render(
         multiview_mask: None,
     });
 
-    postprocess_pass.set_pipeline(&data.pipeline);
+    postprocess_pass.set_pipeline(&data.pipeline(db));
     postprocess_pass.set_bind_group(0, src, &[]);
-    postprocess_pass.set_bind_group(1, &data.gradient_bind_group, &[]);
-    postprocess_pass.set_vertex_buffer(0, data.quad.buffer.slice(..));
-    postprocess_pass.draw(0..(data.quad.count), 0..1);
+    postprocess_pass.set_bind_group(1, &data.gradient_bind_group(db), &[]);
+    postprocess_pass.set_vertex_buffer(0, data.quad(db).buffer.slice(..));
+    postprocess_pass.draw(0..(data.quad(db).count), 0..1);
 }
