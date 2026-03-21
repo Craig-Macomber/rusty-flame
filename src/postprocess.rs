@@ -8,22 +8,23 @@ use wgpu::{
     TextureViewDimension,
 };
 
-use crate::{
-    mesh::build_quad, render_common::MeshData, util_types::PtrRc, wgpu_render::Postprocesser,
-};
+use crate::accumulate::{self, DeviceData};
+use crate::wgpu_render::{ComputedPostProcess, SalsaInputs};
+use crate::{mesh::build_quad, render_common::MeshData};
 
 /// Device dependant, but otherwise constant data.
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Clone)]
 pub struct Data {
     gradient_bind_group: wgpu::BindGroup,
     quad: MeshData,
     pipeline: wgpu::RenderPipeline,
 }
 
-pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
-    let device = db.device(());
-    let queue = db.queue(());
-    let data = db.data(());
+#[salsa::tracked]
+pub fn data(db: &dyn salsa::Database, salsa_device: SalsaInputs) -> Data {
+    let device = salsa_device.device(db);
+    let queue = salsa_device.queue(db);
+    let data = accumulate::data(db, salsa_device);
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("postprocess.wgsl"),
@@ -160,7 +161,7 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
             entry_point: Some("fs_main"),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
-                format: *db.swapchain_format(()),
+                format: *salsa_device.format(db),
                 blend: Some(blend_state_replace),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -174,17 +175,22 @@ pub fn data(db: &dyn Postprocesser, (): ()) -> PtrRc<Data> {
         quad: MeshData::new(&device, &build_quad(), "Quad Vertex Buffer"),
         pipeline,
     }
-    .into()
+}
+
+#[salsa::tracked]
+pub fn postprocess_data(db: &dyn salsa::Database, device: SalsaInputs) -> ComputedPostProcess<'_> {
+    ComputedPostProcess::new(db, data(db, device))
 }
 
 /// Draws a source accumulation texture into dst with log density coloring
 pub fn render(
-    db: &dyn Postprocesser,
+    db: &dyn salsa::Database,
+    device: SalsaInputs,
     encoder: &mut wgpu::CommandEncoder,
     src: &wgpu::BindGroup,
     dst: &wgpu::TextureView,
 ) {
-    let data = db.postprocess_data(());
+    let data = postprocess_data(db, device).data(db);
 
     let mut postprocess_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Postprocess render pass"),

@@ -1,6 +1,7 @@
 use crate::fixed_point;
 use crate::geometry::{Bounds, Rect};
 use nalgebra::Affine2;
+use ordered_float::OrderedFloat;
 use std::fmt::Debug;
 
 pub trait State<'a> {
@@ -114,6 +115,18 @@ impl<'a> State<'a> for AffineState<'a> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Root {
     storage: Vec<Affine2<f64>>,
+}
+
+impl std::hash::Hash for Root {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for a in &self.storage {
+            for x in 0..3 {
+                for y in 0..3 {
+                    OrderedFloat(a[(x, y)]).hash(state);
+                }
+            }
+        }
+    }
 }
 
 /// NaN is invalid in all the floats here, so Eq is fine.

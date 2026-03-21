@@ -1,79 +1,79 @@
-use std::rc::Rc;
+use std::sync::Arc;
 use wgpu::{Device, Queue, TextureFormat, TextureViewDescriptor};
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    accumulate::{self, AccumulateStorage, Accumulator},
+    accumulate::{self, bounds, pass},
     flame::Root,
     postprocess, ui,
-    util_types::{DebugIt, PtrRc},
+    util_types::DebugIt,
 };
 
-#[salsa::query_group(InputStorage2)]
-pub trait Inputs2: salsa::Database {
-    #[salsa::input]
-    fn window_size(&self, key: ()) -> PhysicalSize<u32>;
-
-    #[salsa::input]
-    fn swapchain_format(&self, key: ()) -> DebugIt<TextureFormat>;
-
-    #[salsa::input]
-    fn queue(&self, key: ()) -> Rc<Queue>;
+#[salsa::input]
+pub struct SalsaInputs {
+    pub device: Arc<Device>,
+    pub queue: Arc<Queue>,
+    pub size: PhysicalSize<u32>,
+    pub format: DebugIt<TextureFormat>,
+    pub settings: ui::Settings,
 }
 
-#[salsa::query_group(InputStorage)]
-pub trait Inputs: salsa::Database {
-    #[salsa::input]
-    fn device(&self, key: ()) -> Rc<Device>;
-
-    #[salsa::input]
-    fn config(&self, key: ()) -> ui::Settings;
+#[salsa::tracked]
+pub struct ComputedRoot<'db> {
+    pub root: Root,
 }
 
-#[salsa::query_group(RendererStorage)]
-pub trait Renderer: Inputs {
-    fn root(&self, key: ()) -> Root;
+#[salsa::tracked]
+pub fn compute_root(db: &dyn salsa::Database, inputs: SalsaInputs) -> ComputedRoot<'_> {
+    ComputedRoot::new(db, inputs.settings(db).get_state())
 }
 
-#[salsa::query_group(PostprocesserStorage)]
-pub trait Postprocesser: Accumulator + Inputs2 {
-    fn postprocess_data(&self, key: ()) -> PtrRc<postprocess::Data>;
+#[salsa::tracked]
+pub struct ComputedPostProcess<'db> {
+    pub data: postprocess::Data,
 }
 
-fn postprocess_data(db: &dyn Postprocesser, (): ()) -> PtrRc<postprocess::Data> {
-    postprocess::data(db, ())
+#[salsa::tracked]
+pub fn compute_postprocess(
+    db: &dyn salsa::Database,
+    inputs: SalsaInputs,
+) -> ComputedPostProcess<'_> {
+    ComputedPostProcess::new(db, postprocess::data(db, inputs))
 }
 
-#[salsa::database(
-    RendererStorage,
-    InputStorage,
-    InputStorage2,
-    AccumulateStorage,
-    PostprocesserStorage
-)]
-#[derive(Default)]
-pub struct DatabaseStruct {
-    storage: salsa::Storage<Self>,
-}
+// #[salsa::db]
+// #[derive(Clone)]
+// #[cfg_attr(not(test), derive(Default))]
+// pub struct DatabaseImpl {
+//     storage: salsa::Storage<Self>,
+// }
 
-impl salsa::Database for DatabaseStruct {}
-
-fn root(db: &dyn Renderer, (): ()) -> Root {
-    db.config(()).get_state()
-}
+// #[salsa::db]
+// impl salsa::Database for DatabaseImpl {}
 
 pub fn render(
-    db: &DatabaseStruct,
+    db: &dyn salsa::Database,
+    inputs: SalsaInputs,
     frame: &wgpu::SurfaceTexture,
     encoder: &mut wgpu::CommandEncoder,
 ) {
-    let accumulate = db.pass(accumulate::PassKey {
-        resolution: db.window_size(()),
-        filter: false,
-    });
-    let bind_group = accumulate.render(db, encoder);
+    let root = compute_root(db, inputs);
+    let bounds = bounds(db, root);
+    let accumulate = pass(
+        db,
+        inputs,
+        bounds,
+        root,
+        accumulate::PassKey {
+            resolution: inputs.size(db),
+            filter: false,
+        },
+    );
+    let post = compute_postprocess(db, inputs);
+    let bind_group = accumulate.render(db, inputs, root, post, encoder);
     postprocess::render(
         db,
+        inputs,
         encoder,
         bind_group,
         &frame.texture.create_view(&TextureViewDescriptor::default()),

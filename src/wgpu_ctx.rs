@@ -3,6 +3,7 @@
 use egui::{FontDefinitions, Style};
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
 use egui_winit_platform::PlatformDescriptor;
+use salsa::{DatabaseImpl, Setter};
 use std::{rc::Rc, sync::Arc};
 use wasm_timer::Instant;
 use wgpu::MemoryHints::Performance;
@@ -17,7 +18,7 @@ use winit::{
 use crate::{
     ui,
     util_types::DebugIt,
-    wgpu_render::{self, render, Inputs, Inputs2},
+    wgpu_render::{self, render, SalsaInputs},
 };
 
 pub struct WgpuCtx {
@@ -35,7 +36,9 @@ pub struct WgpuCtx {
 
     window: Arc<Window>,
 
-    db: wgpu_render::DatabaseStruct,
+    db: DatabaseImpl,
+
+    inputs: SalsaInputs,
 }
 
 impl WgpuCtx {
@@ -129,16 +132,25 @@ impl WgpuCtx {
 
         let ui_settings = ui::Settings::default();
 
-        let mut db = wgpu_render::DatabaseStruct::default();
-        db.set_config((), ui_settings.clone());
-        db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
-        db.set_device_with_durability((), Rc::new(device), salsa::Durability::HIGH);
-        db.set_queue_with_durability((), Rc::new(queue), salsa::Durability::HIGH);
-        db.set_swapchain_format_with_durability(
-            (),
+        let db = DatabaseImpl::new();
+
+        let inputs = SalsaInputs::new(
+            &db,
+            Arc::new(device),
+            Arc::new(queue),
+            size,
             DebugIt(surface_format),
-            salsa::Durability::HIGH,
+            ui_settings.clone(),
         );
+        // db.set_config((), ui_settings.clone());
+        // db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
+        // db.set_device_with_durability((), Rc::new(device), salsa::Durability::HIGH);
+        // db.set_queue_with_durability((), Rc::new(queue), salsa::Durability::HIGH);
+        // db.set_swapchain_format_with_durability(
+        //     (),
+        //     DebugIt(surface_format),
+        //     salsa::Durability::HIGH,
+        // );
 
         WgpuCtx {
             surface,
@@ -152,6 +164,7 @@ impl WgpuCtx {
             recent_frame_rate: Default::default(),
             egui_rpass,
             window,
+            inputs,
         }
     }
 
@@ -160,12 +173,11 @@ impl WgpuCtx {
         self.surface_config.width = width.max(1);
         self.surface_config.height = height.max(1);
         self.surface
-            .configure(&self.db.device(()), &self.surface_config);
-        self.db.set_window_size_with_durability(
-            (),
-            (self.surface_config.width, self.surface_config.height).into(),
-            salsa::Durability::MEDIUM,
-        );
+            .configure(&self.inputs.device(&mut self.db), &self.surface_config);
+        self.inputs
+            .set_size(&mut self.db)
+            .with_durability(salsa::Durability::MEDIUM)
+            .to((self.surface_config.width, self.surface_config.height).into());
     }
 
     fn draw(&mut self) {
@@ -177,10 +189,12 @@ impl WgpuCtx {
             self.frame_count = 0;
         }
 
-        self.db.set_config((), self.ui_settings.clone());
+        self.inputs
+            .set_settings(&mut self.db)
+            .to(self.ui_settings.clone());
 
-        let device = &mut self.db.device(());
-        let queue = &mut self.db.queue(());
+        let device = &mut self.inputs.device(&self.db);
+        let queue = &mut self.inputs.queue(&self.db);
         let output_texture = self
             .surface
             .get_current_texture()
@@ -189,7 +203,7 @@ impl WgpuCtx {
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             // TODO: ENABLE
-            render(&self.db, &output_texture, &mut encoder);
+            render(&self.db, self.inputs, &output_texture, &mut encoder);
 
             let output_view = output_texture
                 .texture
@@ -237,7 +251,7 @@ impl WgpuCtx {
                 .unwrap();
         }
 
-        self.db.queue(()).submit(Some(encoder.finish()));
+        self.inputs.queue(&self.db).submit(Some(encoder.finish()));
 
         output_texture.present()
     }

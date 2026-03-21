@@ -3,7 +3,7 @@
 use bytemuck::Pod;
 use wgpu::{util::DeviceExt, Buffer, Device};
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Clone)]
 pub struct MeshData {
     pub count: u32,
     pub buffer: Buffer,

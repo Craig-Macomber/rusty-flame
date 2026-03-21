@@ -12,8 +12,8 @@ use crate::{
     geometry::{self, box_to_box, letter_box_scale, Bounds, Rect},
     mesh::{build_instances, build_mesh},
     render_common::MeshData,
-    util_types::PtrRc,
-    wgpu_render::Renderer,
+    util_types::PtrArc,
+    wgpu_render::{compute_postprocess, ComputedPostProcess, ComputedRoot, SalsaInputs},
 };
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -33,18 +33,10 @@ impl Accumulate {
     }
 }
 
-#[salsa::query_group(AccumulateStorage)]
-pub trait Accumulator: Renderer {
-    fn data(&self, key: ()) -> PtrRc<DeviceData>;
-    fn pass(&self, key: PassKey) -> PtrRc<Pass>;
-    fn mesh(&self, key: u32) -> PtrRc<MeshData>;
-    fn instance(&self, key: InstanceKey) -> PtrRc<MeshData>;
-    fn bounds(&self, key: ()) -> Rect;
-}
-
-fn bounds(db: &dyn Accumulator, (): ()) -> Rect {
-    let root = db.root(());
+#[salsa::tracked]
+pub fn bounds(db: &dyn salsa::Database, root: ComputedRoot<'_>) -> Rect {
     let levels = 5;
+    let root = root.root(db);
 
     // This can be expensive, so cache it.
     let bounds = root.get_state().get_bounds(levels);
@@ -54,11 +46,17 @@ fn bounds(db: &dyn Accumulator, (): ()) -> Rect {
     bounds
 }
 
-pub fn mesh(db: &dyn Accumulator, levels: u32) -> PtrRc<MeshData> {
-    let bounds = db.bounds(());
+#[salsa::tracked]
+pub fn mesh(
+    db: &dyn salsa::Database,
+    inputs: SalsaInputs,
+    root: ComputedRoot<'_>,
+    levels: u32,
+) -> PtrArc<MeshData> {
+    let bounds = bounds(db, root);
     MeshData::new(
-        &db.device(()),
-        &build_mesh(&db.root(()), bounds, levels),
+        &inputs.device(db),
+        &build_mesh(&root.root(db), bounds, levels),
         "Vertex Buffer",
     )
     .into()
@@ -72,8 +70,14 @@ pub struct InstanceKey {
     aspect_ratio: Ratio<u32>,
 }
 
-pub fn instance(db: &dyn Accumulator, key: InstanceKey) -> PtrRc<MeshData> {
-    let bounds = db.bounds(());
+#[salsa::tracked]
+pub fn instance(
+    db: &dyn salsa::Database,
+    inputs: SalsaInputs,
+    root: ComputedRoot<'_>,
+    key: InstanceKey,
+) -> PtrArc<MeshData> {
+    let bounds = bounds(db, root);
 
     let window_rect = geometry::Rect {
         min: na::Point2::new(0.0, 0.0),
@@ -94,8 +98,8 @@ pub fn instance(db: &dyn Accumulator, key: InstanceKey) -> PtrRc<MeshData> {
     );
 
     MeshData::new(
-        &db.device(()),
-        &build_instances(&db.root(()), rebox * root_mat, key.levels),
+        &inputs.device(db),
+        &build_instances(&root.root(db), rebox * root_mat, key.levels),
         "Instance Buffer",
     )
     .into()
@@ -125,8 +129,9 @@ pub struct PassKey {
     pub filter: bool,
 }
 
-pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
-    let device = db.device(());
+#[salsa::tracked]
+pub fn data(db: &dyn salsa::Database, device: SalsaInputs) -> PtrArc<DeviceData> {
+    let device = device.device(db);
     DeviceData {
         // Load the shaders from disk
         shader: device.create_shader_module(ShaderModuleDescriptor {
@@ -178,22 +183,38 @@ pub fn data(db: &dyn Accumulator, (): ()) -> PtrRc<DeviceData> {
 }
 
 impl Pass {
-    pub fn render(&self, db: &dyn Accumulator, encoder: &mut wgpu::CommandEncoder) -> &BindGroup {
-        let vertexes = db.mesh(self.spec.mesh_levels());
-        let instances = db.instance(InstanceKey {
-            levels: self.spec.instance_levels(),
-            aspect_ratio: Ratio::new(self.spec.size.width, self.spec.size.height),
-        });
+    pub fn render(
+        &self,
+        db: &dyn salsa::Database,
+        inputs: SalsaInputs,
+        root: ComputedRoot,
+        data: ComputedPostProcess,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> &BindGroup {
+        let vertexes = mesh(db, inputs, root, self.spec.mesh_levels());
+        let instances = instance(
+            db,
+            inputs,
+            root,
+            InstanceKey {
+                levels: self.spec.instance_levels(),
+                aspect_ratio: Ratio::new(self.spec.size.width, self.spec.size.height),
+            },
+        );
 
+        let bounds = bounds(db, root);
         // TODO: avoid having 3 "if let"s for this.
         let smaller_pass = if let Some(b) = &self.smaller {
-            let inner = db.pass(b.clone());
+            let inner = pass(db, inputs, bounds, root, b.clone());
             Some(inner)
         } else {
             None
         };
 
-        let smaller = smaller_pass.as_ref().map(|b| b.render(db, encoder));
+        let post = compute_postprocess(db, inputs);
+        let smaller = smaller_pass
+            .as_ref()
+            .map(|b| b.render(db, inputs, root, post, encoder));
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Accumulate"),
@@ -235,9 +256,15 @@ fn texture_size(s: f64) -> u32 {
 }
 
 /// Returns a BindGroup for reading from the the output from the pass
-pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
-    let b = db.bounds(());
-    let root = db.root(());
+pub fn pass(
+    db: &dyn salsa::Database,
+    inputs: SalsaInputs,
+    bounds: Rect,
+    root: ComputedRoot,
+    key: PassKey,
+) -> PtrArc<Pass> {
+    let b = bounds;
+    let root = root.root(db);
     let mut sf_min = f64::INFINITY;
     let mut sf_max = f64::NEG_INFINITY;
     let mut fill_ratio = 0.0;
@@ -278,7 +305,7 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
 
     // Avoid buffers being too large
     const BUFFER_LIMIT: usize = 512;
-    while passes > 2 && db.config(()).n.pow(passes / 2) > BUFFER_LIMIT {
+    while passes > 2 && inputs.settings(db).n.pow(passes / 2) > BUFFER_LIMIT {
         passes -= 1;
     }
 
@@ -297,6 +324,7 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
     };
     make_pass(
         db,
+        inputs,
         Accumulate {
             levels: passes,
             size: key.resolution,
@@ -309,13 +337,14 @@ pub fn pass(db: &dyn Accumulator, key: PassKey) -> PtrRc<Pass> {
 }
 
 fn make_pass(
-    db: &dyn Accumulator,
+    db: &dyn salsa::Database,
+    inputs: SalsaInputs,
     accumulate: Accumulate,
     smaller: Option<PassKey>,
     filter: bool,
 ) -> Pass {
-    let device = db.device(());
-    let data = db.data(());
+    let device = inputs.device(db);
+    let data = data(db, inputs);
 
     let blend_add = wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
