@@ -13,7 +13,7 @@ use crate::{
     mesh::{build_instances, build_mesh},
     render_common::MeshData,
     util_types::PtrArc,
-    wgpu_render::{ComputedRoot, SalsaInputs},
+    wgpu_render::{CachedRoot, SalsaInputs},
 };
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -34,7 +34,7 @@ impl Accumulate {
 }
 
 #[salsa::tracked]
-pub fn bounds(db: &dyn salsa::Database, root: ComputedRoot<'_>) -> Rect {
+pub fn bounds(db: &dyn salsa::Database, root: CachedRoot<'_>) -> Rect {
     let levels = 5;
     let root = root.root(db);
 
@@ -50,7 +50,7 @@ pub fn bounds(db: &dyn salsa::Database, root: ComputedRoot<'_>) -> Rect {
 pub fn mesh(
     db: &dyn salsa::Database,
     inputs: SalsaInputs,
-    root: ComputedRoot<'_>,
+    root: CachedRoot<'_>,
     levels: u32,
 ) -> PtrArc<MeshData> {
     let bounds = bounds(db, root);
@@ -74,7 +74,7 @@ pub struct InstanceKey {
 pub fn instance(
     db: &dyn salsa::Database,
     inputs: SalsaInputs,
-    root: ComputedRoot<'_>,
+    root: CachedRoot<'_>,
     key: InstanceKey,
 ) -> PtrArc<MeshData> {
     let bounds = bounds(db, root);
@@ -187,7 +187,7 @@ impl Pass {
         &self,
         db: &dyn salsa::Database,
         inputs: SalsaInputs,
-        root: ComputedRoot,
+        root: CachedRoot,
         encoder: &mut wgpu::CommandEncoder,
     ) -> &BindGroup {
         let vertexes = mesh(db, inputs, root, self.spec.mesh_levels());
@@ -258,7 +258,7 @@ pub fn pass(
     db: &dyn salsa::Database,
     inputs: SalsaInputs,
     bounds: Rect,
-    root: ComputedRoot,
+    root: CachedRoot,
     key: PassKey,
 ) -> PtrArc<Pass> {
     let b = bounds;

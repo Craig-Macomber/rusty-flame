@@ -19,13 +19,13 @@ pub struct SalsaInputs {
 }
 
 #[salsa::tracked]
-pub struct ComputedRoot<'db> {
+pub struct CachedRoot<'db> {
     pub root: Root,
 }
 
 #[salsa::tracked]
-pub fn compute_root(db: &dyn salsa::Database, inputs: SalsaInputs) -> ComputedRoot<'_> {
-    ComputedRoot::new(db, inputs.settings(db).get_state())
+fn compute_root(db: &dyn salsa::Database, inputs: SalsaInputs) -> CachedRoot<'_> {
+    CachedRoot::new(db, inputs.settings(db).get_state())
 }
 
 pub fn render(
