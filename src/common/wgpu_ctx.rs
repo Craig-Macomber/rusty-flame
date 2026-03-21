@@ -13,7 +13,7 @@ use winit::{
     window::Window,
 };
 
-use crate::{
+use crate::common::{
     ui,
     util_types::DebugIt,
     wgpu_render::{render, SalsaInputs},

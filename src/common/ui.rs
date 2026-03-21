@@ -1,6 +1,6 @@
-use crate::flame::Root;
+use crate::common::flame::Root;
 use egui::Ui;
-use na::{Affine2, Point2, Rotation2, SMatrix, Similarity2, Translation2, Vector2};
+use nalgebra::{Affine2, Point2, Rotation2, SMatrix, Similarity2, Translation2, Vector2};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
@@ -93,7 +93,7 @@ fn get_polygon_point(setting: &Settings, i: usize) -> Affine2<f64> {
 
     let offset = Rotation2::new(std::f64::consts::PI * 2.0 * i as f64 / setting.n as f64)
         * Point2::new(1.0, 0.0);
-    na::convert::<_, Affine2<f64>>(sm * Translation2::new(offset.x, offset.y))
+    nalgebra::convert::<_, Affine2<f64>>(sm * Translation2::new(offset.x, offset.y))
         * Rotation2::new(setting.rotation as f64)
 }
 

@@ -1,5 +1,4 @@
-use na::Vector2;
-use nalgebra::Point2;
+use nalgebra::{Point2, Vector2};
 
 pub trait Bounds: PartialEq + Sized {
     fn union(a: &Self, b: &Self) -> Self;
@@ -83,12 +82,12 @@ pub fn letter_box_scale(container: Rect, content: Rect) -> f64 {
     )
 }
 
-pub fn letter_box(container: Rect, content: Rect) -> na::Affine2<f64> {
+pub fn letter_box(container: Rect, content: Rect) -> nalgebra::Affine2<f64> {
     let scale = letter_box_scale(container, content);
 
-    na::convert(
-        na::Similarity2::from_scaling(scale)
-            * na::Translation2::new(
+    nalgebra::convert(
+        nalgebra::Similarity2::from_scaling(scale)
+            * nalgebra::Translation2::new(
                 -content.min.x
                     + ((container.width() / scale) - content.width()) / 2.0
                     + container.min.x / scale,
@@ -99,15 +98,15 @@ pub fn letter_box(container: Rect, content: Rect) -> na::Affine2<f64> {
     )
 }
 
-pub fn box_to_box(container: Rect, content: Rect) -> na::Affine2<f64> {
+pub fn box_to_box(container: Rect, content: Rect) -> nalgebra::Affine2<f64> {
     let scale_x = container.width() / content.width();
     let scale_y = container.height() / content.height();
 
-    let m = na::Matrix3::from_rows(&[
-        na::RowVector3::new(scale_x, 0.0, container.min.x - content.min.x * scale_x),
-        na::RowVector3::new(0.0, scale_y, container.min.y - content.min.y * scale_y),
-        na::RowVector3::new(0.0, 0.0, 1.0),
+    let m = nalgebra::Matrix3::from_rows(&[
+        nalgebra::RowVector3::new(scale_x, 0.0, container.min.x - content.min.x * scale_x),
+        nalgebra::RowVector3::new(0.0, scale_y, container.min.y - content.min.y * scale_y),
+        nalgebra::RowVector3::new(0.0, 0.0, 1.0),
     ]);
 
-    na::Affine2::from_matrix_unchecked(m)
+    nalgebra::Affine2::from_matrix_unchecked(m)
 }

@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use nalgebra::{Affine2, Matrix3};
 
-use crate::{
+use crate::common::{
     flame::{Root, State},
     geometry::{self, Rect},
 };
@@ -24,7 +24,7 @@ pub struct Instance {
     row1: [f32; 4],
 }
 
-fn convert_point(p: &na::Point2<f64>) -> [f32; 2] {
+fn convert_point(p: &nalgebra::Point2<f64>) -> [f32; 2] {
     [p.x as f32, p.y as f32]
 }
 
@@ -63,8 +63,8 @@ pub(crate) fn build_instances(root: &Root, root_mat: Affine2<f64>, levels: u32) 
 
 pub(crate) fn build_quad() -> Vec<Vertex> {
     let corners: Vec<Position> = geometry::Rect {
-        min: na::Point2::new(-1.0, -1.0),
-        max: na::Point2::new(1.0, 1.0),
+        min: nalgebra::Point2::new(-1.0, -1.0),
+        max: nalgebra::Point2::new(1.0, 1.0),
     }
     .corners()
     .iter()

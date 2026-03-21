@@ -2,7 +2,7 @@ use std::sync::Arc;
 use wgpu::{Device, Queue, TextureFormat, TextureViewDescriptor};
 use winit::dpi::PhysicalSize;
 
-use crate::{
+use crate::common::{
     accumulate::{self, bounds, pass},
     flame::Root,
     postprocess, ui,

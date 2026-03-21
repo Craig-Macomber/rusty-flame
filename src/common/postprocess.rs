@@ -8,7 +8,9 @@ use wgpu::{
     TextureViewDimension,
 };
 
-use crate::{accumulate, mesh::build_quad, render_common::MeshData, wgpu_render::SalsaInputs};
+use crate::common::{
+    accumulate, mesh::build_quad, render_common::MeshData, wgpu_render::SalsaInputs,
+};
 
 /// Device dependant, but otherwise constant data.
 #[salsa::tracked]
@@ -26,10 +28,12 @@ fn data(db: &dyn salsa::Database, inputs: SalsaInputs) -> Data<'_> {
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("postprocess.wgsl"),
-        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/postprocess.wgsl"))),
+        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+            "../../shaders/postprocess.wgsl"
+        ))),
     });
 
-    let gradient_bytes = include_bytes!("../images/gradient.png");
+    let gradient_bytes = include_bytes!("../../images/gradient.png");
     let gradient_image = image::load_from_memory(gradient_bytes).unwrap();
     let gradient_rgba = gradient_image.as_rgba8().unwrap();
 

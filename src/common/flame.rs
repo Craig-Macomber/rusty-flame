@@ -1,5 +1,5 @@
-use crate::fixed_point;
-use crate::geometry::{Bounds, Rect};
+use crate::common::fixed_point;
+use crate::common::geometry::{Bounds, Rect};
 use nalgebra::Affine2;
 use ordered_float::OrderedFloat;
 use std::fmt::Debug;
@@ -144,8 +144,8 @@ impl Root {
 
 #[cfg(test)]
 mod tests {
-    use crate::flame::{fixed_point, AffineState, BoundedState, Bounds, Rect, Root, State};
-    use na::{Affine2, Point2, Rotation2, Similarity2, Translation2};
+    use crate::common::flame::{fixed_point, AffineState, BoundedState, Bounds, Rect, Root, State};
+    use nalgebra::{Affine2, Point2, Rotation2, Similarity2, Translation2};
 
     fn checked_bounds(s: &AffineState) -> Rect {
         let b = s.get_bounds(3);
@@ -160,15 +160,15 @@ mod tests {
     }
     #[test]
     fn empty_bounds() {
-        let v = [na::convert(Similarity2::from_scaling(0.5))];
-        let state = AffineState::new(na::convert(Similarity2::from_scaling(1.0)), &v);
+        let v = [nalgebra::convert(Similarity2::from_scaling(0.5))];
+        let state = AffineState::new(nalgebra::convert(Similarity2::from_scaling(1.0)), &v);
 
         assert_eq!(checked_bounds(&state), Rect::origin());
     }
 
     #[test]
     fn shifted_bounds() {
-        let v = Root::new(vec![na::convert(
+        let v = Root::new(vec![nalgebra::convert(
             Similarity2::from_scaling(0.5) * Translation2::new(5.0, 6.0),
         )]);
 
@@ -185,9 +185,9 @@ mod tests {
 
     #[test]
     fn line_bounds() {
-        let v: [na::Transform<f64, na::TAffine, 2>; 2] = [
-            na::convert(Similarity2::from_scaling(0.5)),
-            na::convert(Similarity2::from_scaling(0.5) * Translation2::new(0.0, 1.0)),
+        let v: [nalgebra::Transform<f64, nalgebra::TAffine, 2>; 2] = [
+            nalgebra::convert(Similarity2::from_scaling(0.5)),
+            nalgebra::convert(Similarity2::from_scaling(0.5) * Translation2::new(0.0, 1.0)),
         ];
 
         assert_eq!(
@@ -227,7 +227,7 @@ mod tests {
                     let offset =
                         Rotation2::new(std::f64::consts::PI * 2.0 * f64::from(i) / f64::from(n))
                             * Point2::new(shift, 0.0);
-                    na::convert::<_, Affine2<f64>>(sm * Translation2::new(offset.x, offset.y))
+                    nalgebra::convert::<_, Affine2<f64>>(sm * Translation2::new(offset.x, offset.y))
                         * Rotation2::new(0.3)
                 })
                 .collect::<Vec<Affine2<f64>>>();

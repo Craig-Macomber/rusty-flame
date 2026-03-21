@@ -7,7 +7,7 @@ use wgpu::{
 };
 use winit::dpi::PhysicalSize;
 
-use crate::{
+use crate::common::{
     flame::{BoundedState, State},
     geometry::{self, box_to_box, letter_box_scale, Bounds, Rect},
     mesh::{build_instances, build_mesh},
@@ -80,8 +80,8 @@ pub fn instance(
     let bounds = bounds(db, root);
 
     let window_rect = geometry::Rect {
-        min: na::Point2::new(0.0, 0.0),
-        max: na::Point2::new(
+        min: nalgebra::Point2::new(0.0, 0.0),
+        max: nalgebra::Point2::new(
             *key.aspect_ratio.numer() as f64,
             *key.aspect_ratio.denom() as f64,
         ),
@@ -91,8 +91,8 @@ pub fn instance(
 
     let rebox = box_to_box(
         geometry::Rect {
-            min: na::Point2::new(-1.0, -1.0),
-            max: na::Point2::new(1.0, 1.0),
+            min: nalgebra::Point2::new(-1.0, -1.0),
+            max: nalgebra::Point2::new(1.0, 1.0),
         },
         window_rect,
     );
@@ -136,7 +136,7 @@ pub fn data(db: &dyn salsa::Database, inputs: SalsaInputs) -> PtrArc<DeviceData>
         // Load the shaders from disk
         shader: device.create_shader_module(ShaderModuleDescriptor {
             label: Some("wgpu.wgsl"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/wgpu.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("../../shaders/wgpu.wgsl"))),
         }),
 
         accumulation_bind_group_layout: device.create_bind_group_layout(
@@ -242,7 +242,7 @@ impl Pass {
     }
 }
 
-fn area_sf(t: &na::Affine2<f64>) -> f64 {
+fn area_sf(t: &nalgebra::Affine2<f64>) -> f64 {
     let mat = t.matrix();
     // get the upper 2x2 (as that is what effects scaling). TODO: better way to get scale factor.
     let m2 = nalgebra::Matrix2::from_fn(|a, b| mat.row(a)[b]);
@@ -281,8 +281,8 @@ pub fn pass(
 
     let lb_scale = letter_box_scale(
         Rect {
-            min: na::Point2::origin(),
-            max: na::Point2::new(key.resolution.width as f64, key.resolution.height as f64),
+            min: nalgebra::Point2::origin(),
+            max: nalgebra::Point2::new(key.resolution.width as f64, key.resolution.height as f64),
         },
         b,
     );

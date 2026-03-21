@@ -30,7 +30,7 @@ pub fn iterate_cmp<V: PartialEq, F: FnMut(&V) -> V, Cmp: FnMut(V, V) -> (V, bool
 
 #[cfg(test)]
 mod tests {
-    use crate::fixed_point;
+    use crate::common::fixed_point;
 
     #[test]
     fn fixed_point() {

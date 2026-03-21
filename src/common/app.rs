@@ -1,4 +1,4 @@
-use crate::wgpu_ctx::WgpuCtx;
+use crate::common::wgpu_ctx::WgpuCtx;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 use winit::application::ApplicationHandler;
