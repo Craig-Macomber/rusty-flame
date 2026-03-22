@@ -33,7 +33,7 @@ impl Accumulate {
     }
 }
 
-#[salsa::tracked]
+#[salsa::tracked(lru = 1)]
 pub fn bounds(db: &dyn salsa::Database, root: CachedRoot<'_>) -> Rect {
     let levels = 5;
     let root = root.root(db);
@@ -46,7 +46,7 @@ pub fn bounds(db: &dyn salsa::Database, root: CachedRoot<'_>) -> Rect {
     bounds
 }
 
-#[salsa::tracked]
+#[salsa::tracked(lru = 1)]
 pub fn mesh(
     db: &dyn salsa::Database,
     inputs: SalsaInputs,
@@ -70,7 +70,7 @@ pub struct InstanceKey {
     aspect_ratio: Ratio<u32>,
 }
 
-#[salsa::tracked]
+#[salsa::tracked(lru = 1)]
 pub fn instance(
     db: &dyn salsa::Database,
     inputs: SalsaInputs,
@@ -129,7 +129,7 @@ pub struct PassKey {
     pub filter: bool,
 }
 
-#[salsa::tracked]
+#[salsa::tracked(lru = 1)]
 pub fn data(db: &dyn salsa::Database, inputs: SalsaInputs) -> PtrArc<DeviceData> {
     let device = inputs.device(db);
     DeviceData {

@@ -20,7 +20,7 @@ struct Data<'db> {
     pipeline: wgpu::RenderPipeline,
 }
 
-#[salsa::tracked]
+#[salsa::tracked(lru = 1)]
 fn data(db: &dyn salsa::Database, inputs: SalsaInputs) -> Data<'_> {
     let device = inputs.device(db);
     let queue = inputs.queue(db);

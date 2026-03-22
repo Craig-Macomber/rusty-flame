@@ -23,7 +23,7 @@ pub struct CachedRoot<'db> {
     pub root: Root,
 }
 
-#[salsa::tracked]
+#[salsa::tracked(lru = 1)]
 fn compute_root(db: &dyn salsa::Database, inputs: SalsaInputs) -> CachedRoot<'_> {
     CachedRoot::new(db, inputs.settings(db).get_state())
 }
