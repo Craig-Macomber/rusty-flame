@@ -15,7 +15,7 @@ impl<T> Deref for DebugIt<T> {
 }
 
 #[derive(Debug)]
-/// Rc with pointer semantics (reference equality)
+/// Arc with pointer semantics (reference equality)
 pub struct PtrArc<T>(Arc<T>);
 
 // TODO: why does derive clone not work for this?

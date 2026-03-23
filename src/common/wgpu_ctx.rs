@@ -120,32 +120,22 @@ impl WgpuCtx {
         // We use the egui_wgpu_backend crate as the render backend.
         let egui_rpass = RenderPass::new(&device, surface_format, 1);
 
-        // Display the demo application that ships with egui.
-        // let mut demo_app = egui_demo_lib::ColorTest::default();
-
-        // let start_time = Instant::now();
-
         let ui_settings = ui::Settings::default();
 
         let db = DatabaseImpl::new();
 
-        let inputs = SalsaInputs::new(
-            &db,
+        let inputs = SalsaInputs::builder(
             Arc::new(device),
             Arc::new(queue),
             size,
             DebugIt(surface_format),
             ui_settings.clone(),
-        );
-        // db.set_config((), ui_settings.clone());
-        // db.set_window_size_with_durability((), size, salsa::Durability::MEDIUM);
-        // db.set_device_with_durability((), Rc::new(device), salsa::Durability::HIGH);
-        // db.set_queue_with_durability((), Rc::new(queue), salsa::Durability::HIGH);
-        // db.set_swapchain_format_with_durability(
-        //     (),
-        //     DebugIt(surface_format),
-        //     salsa::Durability::HIGH,
-        // );
+        )
+        .device_durability(salsa::Durability::HIGH)
+        .queue_durability(salsa::Durability::HIGH)
+        .format_durability(salsa::Durability::HIGH)
+        .size_durability(salsa::Durability::MEDIUM)
+        .new(&db);
 
         WgpuCtx {
             surface,
@@ -257,8 +247,9 @@ impl WgpuCtx {
         let exclusive = self.egui_platform.captures_event(&event);
         self.egui_platform.handle_event(&event);
 
-        // TODO: don't do this for everything.
-        self.window.request_redraw();
+        if self.ui_settings.busy_loop || !matches!(event, WindowEvent::RedrawRequested) {
+            self.window.request_redraw();
+        }
 
         if !exclusive {
             match event {
