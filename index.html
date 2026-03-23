@@ -5,13 +5,13 @@
     <title>rusty-flame</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   </head>
-  <body style="margin:0; width: 100%; height: 100%;">
+  <body style="margin: 0; overflow: hidden;">
     <script type="module">
       import init, { wasm_run } from "./pkg/rusty_flame.js";
       init().then(() => {
         wasm_run();
       });
     </script>
-    <canvas tabindex="0" data-raw-handle="1" style="width: 100%; height: 100%; cursor: auto;" alt="Rusty Flame" cursor="auto" id="main-canvas"></canvas>
+    <canvas tabindex="0" data-raw-handle="1" style="width: 100vw; height: 100vh; cursor: auto;" alt="Rusty Flame" cursor="auto" id="main-canvas"></canvas>
   </body>
 </html>
