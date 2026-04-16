@@ -46,7 +46,7 @@ pub fn bounds(db: &dyn salsa::Database, root: CachedRoot<'_>) -> Rect {
     bounds
 }
 
-#[salsa::tracked(lru = 1)]
+#[salsa::tracked(lru = 8)]
 pub fn mesh(
     db: &dyn salsa::Database,
     inputs: SalsaInputs,
@@ -70,7 +70,7 @@ pub struct InstanceKey {
     aspect_ratio: Ratio<u32>,
 }
 
-#[salsa::tracked(lru = 1)]
+#[salsa::tracked(lru = 8)]
 pub fn instance(
     db: &dyn salsa::Database,
     inputs: SalsaInputs,
